@@ -1,0 +1,24 @@
+# Build directories
+build-rv1126b/
+build*/
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Binary and object artifacts
+*.o
+*.a
+*.so
+*.so.*
+*.out
+my_uvc
+
+# Temporary / editor files
+*.swp
+*.swo
+*~
+.DS_Store

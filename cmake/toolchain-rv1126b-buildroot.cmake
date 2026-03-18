@@ -1,0 +1,18 @@
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+
+set(BUILDROOT_HOST
+	"/home/kama/workspace/ubuntu20.04/rp_rv1126_sdk/buildroot/output/rockchip_rv1126b/host"
+	CACHE PATH "Buildroot host path")
+
+set(TOOLCHAIN_PREFIX "${BUILDROOT_HOST}/bin/aarch64-buildroot-linux-gnu")
+
+set(CMAKE_C_COMPILER "${TOOLCHAIN_PREFIX}-gcc")
+set(CMAKE_CXX_COMPILER "${TOOLCHAIN_PREFIX}-g++")
+set(CMAKE_SYSROOT "${BUILDROOT_HOST}/aarch64-buildroot-linux-gnu/sysroot")
+
+set(CMAKE_FIND_ROOT_PATH "${CMAKE_SYSROOT}")
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
