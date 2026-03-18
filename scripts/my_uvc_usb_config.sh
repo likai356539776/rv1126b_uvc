@@ -4,13 +4,14 @@ set -eu
 FORMAT="H.264"
 WIDTH="640"
 HEIGHT="480"
+FPS="25"
 GADGET_DIR="/sys/kernel/config/usb_gadget/rockchip"
 FUNC_NAME="uvc.gs1"
 VERBOSE=0
 DO_UNBIND=1
 
 usage() {
-	echo "Usage: $0 [-w width] [-h height] [--verbose] [--no-unbind]"
+	echo "Usage: $0 [-w width] [-h height] [-p fps] [--verbose] [--no-unbind]"
 	echo "Example: $0 -w 640 -h 480"
 }
 
@@ -18,6 +19,21 @@ logv() {
 	if [ "$VERBOSE" -eq 1 ]; then
 		echo "[my_uvc_usb_config] $*"
 	fi
+}
+
+fps_to_interval() {
+	case "$1" in
+	30) echo 333333 ;;
+	25) echo 400000 ;;
+	20) echo 500000 ;;
+	15) echo 666666 ;;
+	10) echo 1000000 ;;
+	5)  echo 2000000 ;;
+	*)
+		echo "Unsupported fps: $1 (supported: 5/10/15/20/25/30)"
+		exit 1
+		;;
+	esac
 }
 
 while [ $# -gt 0 ]; do
@@ -30,6 +46,11 @@ while [ $# -gt 0 ]; do
 	-h)
 		[ $# -ge 2 ] || { usage; exit 1; }
 		HEIGHT="$2"
+		shift 2
+		;;
+	-p|--fps)
+		[ $# -ge 2 ] || { usage; exit 1; }
+		FPS="$2"
 		shift 2
 		;;
 	--verbose)
@@ -108,12 +129,16 @@ mkdir -p "$GADGET_DIR/functions/$FUNC_NAME/streaming/framebased/f1"
 RES_DIR="$GADGET_DIR/functions/$FUNC_NAME/streaming/framebased/f1/${WIDTH}_${HEIGHT}p"
 mkdir -p "$RES_DIR"
 
+DEFAULT_INTERVAL="$(fps_to_interval "$FPS")"
+logv "fps=${FPS}, default interval=${DEFAULT_INTERVAL}"
+
 echo "$WIDTH" > "$RES_DIR/wWidth"
 echo "$HEIGHT" > "$RES_DIR/wHeight"
-echo 333333 > "$RES_DIR/dwDefaultFrameInterval"
+echo "$DEFAULT_INTERVAL" > "$RES_DIR/dwDefaultFrameInterval"
 echo $((WIDTH * HEIGHT * 10)) > "$RES_DIR/dwMinBitRate"
 echo $((WIDTH * HEIGHT * 10)) > "$RES_DIR/dwMaxBitRate"
-echo -e "333333\n400000\n500000\n666666\n1000000\n2000000" > "$RES_DIR/dwFrameInterval"
+# For stable host negotiation, expose a single interval matching selected FPS.
+echo "$DEFAULT_INTERVAL" > "$RES_DIR/dwFrameInterval"
 echo -ne '\x48\x32\x36\x34\x00\x00\x10\x00\x80\x00\x00\xaa\x00\x38\x9b\x71' > \
 	"$GADGET_DIR/functions/$FUNC_NAME/streaming/framebased/f1/guidFormat"
 
@@ -138,4 +163,4 @@ echo "$UDC" > "$GADGET_DIR/UDC"
 FINAL_UDC="$(cat "$GADGET_DIR/UDC" 2>/dev/null || true)"
 logv "final UDC state: '${FINAL_UDC}'"
 
-echo "Configured UVC H.264 ${WIDTH}x${HEIGHT} on UDC=${UDC}"
+echo "Configured UVC H.264 ${WIDTH}x${HEIGHT}@${FPS}fps on UDC=${UDC}"
