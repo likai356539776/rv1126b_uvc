@@ -5,13 +5,13 @@ FORMAT="H.264"
 WIDTH="640"
 HEIGHT="480"
 FPS="25"
+CHANNELS="1"
 GADGET_DIR="/sys/kernel/config/usb_gadget/rockchip"
-FUNC_NAME="uvc.gs1"
 VERBOSE=0
 DO_UNBIND=1
 
 usage() {
-	echo "Usage: $0 [-w width] [-h height] [-p fps] [--verbose] [--no-unbind]"
+	echo "Usage: $0 [-w width] [-h height] [-p fps] [-n channels] [--verbose] [--no-unbind]"
 	echo "Example: $0 -w 640 -h 480"
 }
 
@@ -36,6 +36,16 @@ fps_to_interval() {
 	esac
 }
 
+validate_channels() {
+	case "$1" in
+	1|2|3|4|5|6|7|8) ;;
+	*)
+		echo "Unsupported channels: $1 (supported: 1..8)"
+		exit 1
+		;;
+	esac
+}
+
 while [ $# -gt 0 ]; do
 	case "$1" in
 	-w)
@@ -51,6 +61,11 @@ while [ $# -gt 0 ]; do
 	-p|--fps)
 		[ $# -ge 2 ] || { usage; exit 1; }
 		FPS="$2"
+		shift 2
+		;;
+	-n|--channels)
+		[ $# -ge 2 ] || { usage; exit 1; }
+		CHANNELS="$2"
 		shift 2
 		;;
 	--verbose)
@@ -77,6 +92,7 @@ if [ "$FORMAT" != "H.264" ]; then
 	echo "Only H.264 is supported in v1"
 	exit 1
 fi
+validate_channels "$CHANNELS"
 
 mkdir -p /sys/kernel/config
 mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config
@@ -95,14 +111,14 @@ if [ -d "$GADGET_DIR" ]; then
 	for f in "$GADGET_DIR/configs/b.1"/f*; do
 		[ -L "$f" ] && rm -f "$f"
 	done
-	rm -rf "$GADGET_DIR/functions/$FUNC_NAME" || true
+	rm -rf "$GADGET_DIR/functions/uvc.gs"* || true
 else
 	mkdir -p "$GADGET_DIR"
 fi
 
 mkdir -p "$GADGET_DIR/strings/0x409"
 mkdir -p "$GADGET_DIR/configs/b.1/strings/0x409"
-mkdir -p "$GADGET_DIR/functions/$FUNC_NAME"
+mkdir -p "$GADGET_DIR/functions"
 
 echo 0x2207 > "$GADGET_DIR/idVendor"
 echo 0x0016 > "$GADGET_DIR/idProduct"
@@ -113,45 +129,54 @@ echo "rockchip" > "$GADGET_DIR/strings/0x409/manufacturer"
 echo "my_uvc" > "$GADGET_DIR/strings/0x409/product"
 echo 500 > "$GADGET_DIR/configs/b.1/MaxPower"
 
-echo "my_uvc" > "$GADGET_DIR/functions/$FUNC_NAME/device_name"
-echo "my_uvc" > "$GADGET_DIR/functions/$FUNC_NAME/function_name"
-echo 3072 > "$GADGET_DIR/functions/$FUNC_NAME/streaming_maxpacket"
-echo 2 > "$GADGET_DIR/functions/$FUNC_NAME/uvc_num_request"
-
-mkdir -p "$GADGET_DIR/functions/$FUNC_NAME/control/header/h"
-ln -sf "$GADGET_DIR/functions/$FUNC_NAME/control/header/h" \
-	"$GADGET_DIR/functions/$FUNC_NAME/control/class/fs/h"
-ln -sf "$GADGET_DIR/functions/$FUNC_NAME/control/header/h" \
-	"$GADGET_DIR/functions/$FUNC_NAME/control/class/ss/h"
-
-mkdir -p "$GADGET_DIR/functions/$FUNC_NAME/streaming/header/h"
-mkdir -p "$GADGET_DIR/functions/$FUNC_NAME/streaming/framebased/f1"
-RES_DIR="$GADGET_DIR/functions/$FUNC_NAME/streaming/framebased/f1/${WIDTH}_${HEIGHT}p"
-mkdir -p "$RES_DIR"
-
 DEFAULT_INTERVAL="$(fps_to_interval "$FPS")"
-logv "fps=${FPS}, default interval=${DEFAULT_INTERVAL}"
+logv "fps=${FPS}, default interval=${DEFAULT_INTERVAL}, channels=${CHANNELS}"
 
-echo "$WIDTH" > "$RES_DIR/wWidth"
-echo "$HEIGHT" > "$RES_DIR/wHeight"
-echo "$DEFAULT_INTERVAL" > "$RES_DIR/dwDefaultFrameInterval"
-echo $((WIDTH * HEIGHT * 10)) > "$RES_DIR/dwMinBitRate"
-echo $((WIDTH * HEIGHT * 10)) > "$RES_DIR/dwMaxBitRate"
-# For stable host negotiation, expose a single interval matching selected FPS.
-echo "$DEFAULT_INTERVAL" > "$RES_DIR/dwFrameInterval"
-echo -ne '\x48\x32\x36\x34\x00\x00\x10\x00\x80\x00\x00\xaa\x00\x38\x9b\x71' > \
-	"$GADGET_DIR/functions/$FUNC_NAME/streaming/framebased/f1/guidFormat"
+configure_one_uvc() {
+	_idx="$1"
+	_func="uvc.gs${_idx}"
+	_name="my_uvc_${_idx}"
+	_func_dir="$GADGET_DIR/functions/${_func}"
+	_res_dir="${_func_dir}/streaming/framebased/f1/${WIDTH}_${HEIGHT}p"
 
-ln -sf "$GADGET_DIR/functions/$FUNC_NAME/streaming/framebased/f1" \
-	"$GADGET_DIR/functions/$FUNC_NAME/streaming/header/h/f1"
-ln -sf "$GADGET_DIR/functions/$FUNC_NAME/streaming/header/h" \
-	"$GADGET_DIR/functions/$FUNC_NAME/streaming/class/fs/h"
-ln -sf "$GADGET_DIR/functions/$FUNC_NAME/streaming/header/h" \
-	"$GADGET_DIR/functions/$FUNC_NAME/streaming/class/hs/h"
-ln -sf "$GADGET_DIR/functions/$FUNC_NAME/streaming/header/h" \
-	"$GADGET_DIR/functions/$FUNC_NAME/streaming/class/ss/h"
+	mkdir -p "${_func_dir}"
+	echo "${_name}" > "${_func_dir}/device_name"
+	echo "${_name}" > "${_func_dir}/function_name"
+	if [ "$CHANNELS" -gt 1 ]; then
+		echo 1024 > "${_func_dir}/streaming_maxpacket"
+	else
+		echo 3072 > "${_func_dir}/streaming_maxpacket"
+	fi
+	echo 2 > "${_func_dir}/uvc_num_request"
 
-ln -sf "$GADGET_DIR/functions/$FUNC_NAME" "$GADGET_DIR/configs/b.1/f1"
+	mkdir -p "${_func_dir}/control/header/h"
+	ln -sf "${_func_dir}/control/header/h" "${_func_dir}/control/class/fs/h"
+	ln -sf "${_func_dir}/control/header/h" "${_func_dir}/control/class/ss/h"
+
+	mkdir -p "${_func_dir}/streaming/header/h"
+	mkdir -p "${_func_dir}/streaming/framebased/f1"
+	mkdir -p "${_res_dir}"
+	echo "$WIDTH" > "${_res_dir}/wWidth"
+	echo "$HEIGHT" > "${_res_dir}/wHeight"
+	echo "$DEFAULT_INTERVAL" > "${_res_dir}/dwDefaultFrameInterval"
+	echo $((WIDTH * HEIGHT * 10)) > "${_res_dir}/dwMinBitRate"
+	echo $((WIDTH * HEIGHT * 10)) > "${_res_dir}/dwMaxBitRate"
+	echo "$DEFAULT_INTERVAL" > "${_res_dir}/dwFrameInterval"
+	echo -ne '\x48\x32\x36\x34\x00\x00\x10\x00\x80\x00\x00\xaa\x00\x38\x9b\x71' > \
+		"${_func_dir}/streaming/framebased/f1/guidFormat"
+	ln -sf "${_func_dir}/streaming/framebased/f1" "${_func_dir}/streaming/header/h/f1"
+	ln -sf "${_func_dir}/streaming/header/h" "${_func_dir}/streaming/class/fs/h"
+	ln -sf "${_func_dir}/streaming/header/h" "${_func_dir}/streaming/class/hs/h"
+	ln -sf "${_func_dir}/streaming/header/h" "${_func_dir}/streaming/class/ss/h"
+
+	ln -sf "${_func_dir}" "$GADGET_DIR/configs/b.1/f${_idx}"
+}
+
+_i=1
+while [ "$_i" -le "$CHANNELS" ]; do
+	configure_one_uvc "$_i"
+	_i=$((_i + 1))
+done
 
 UDC="$(ls /sys/class/udc | head -n 1)"
 if [ -z "$UDC" ]; then
@@ -163,4 +188,4 @@ echo "$UDC" > "$GADGET_DIR/UDC"
 FINAL_UDC="$(cat "$GADGET_DIR/UDC" 2>/dev/null || true)"
 logv "final UDC state: '${FINAL_UDC}'"
 
-echo "Configured UVC H.264 ${WIDTH}x${HEIGHT}@${FPS}fps on UDC=${UDC}"
+echo "Configured UVC H.264 ${WIDTH}x${HEIGHT}@${FPS}fps channels=${CHANNELS} on UDC=${UDC}"

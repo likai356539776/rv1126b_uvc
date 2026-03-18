@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <regex>
 #include <sstream>
 
 namespace {
@@ -51,6 +52,7 @@ bool to_bool(const std::string &s, bool *out) {
 
 AppConfig default_app_config() {
 	AppConfig cfg;
+	cfg.channels = 1;
 	cfg.width = 640;
 	cfg.height = 480;
 	cfg.fps = 25;
@@ -60,7 +62,15 @@ AppConfig default_app_config() {
 	cfg.prefer_host_fps = true;
 	cfg.sync_to_idr_on_open = true;
 	cfg.inject_sps_pps_on_idr = true;
+	cfg.startup_prime_frames = 8;
+	cfg.log_level = 1;
+	cfg.stats_enable = true;
+	cfg.stats_interval_sec = 5;
 	cfg.h264_path = "/userdata/200frames_count.h264";
+	for (int i = 0; i < kMaxUvcChannels; i++) {
+		cfg.channel_fps[i] = cfg.fps;
+		cfg.channel_h264_path[i] = cfg.h264_path;
+	}
 	return cfg;
 }
 
@@ -109,7 +119,15 @@ bool load_app_config(const std::string &path, AppConfig *cfg, std::string *err) 
 		if (section != "my_uvc" && section != "uvc")
 			continue;
 
-		if (key == "width") {
+		if (key == "channels") {
+			int v = 0;
+			if (!to_int(val, &v) || v < 1 || v > 8) {
+				if (err)
+					*err = "invalid channels at line " + std::to_string(lineno);
+				return false;
+			}
+			cfg->channels = v;
+		} else if (key == "width") {
 			int v = 0;
 			if (!to_int(val, &v) || v <= 0) {
 				if (err)
@@ -181,6 +199,38 @@ bool load_app_config(const std::string &path, AppConfig *cfg, std::string *err) 
 				return false;
 			}
 			cfg->inject_sps_pps_on_idr = v;
+		} else if (key == "startup_prime_frames") {
+			int v = 0;
+			if (!to_int(val, &v) || v < 0 || v > 120) {
+				if (err)
+					*err = "invalid startup_prime_frames at line " + std::to_string(lineno);
+				return false;
+			}
+			cfg->startup_prime_frames = v;
+		} else if (key == "log_level") {
+			int v = 0;
+			if (!to_int(val, &v) || v < 0 || v > 2) {
+				if (err)
+					*err = "invalid log_level at line " + std::to_string(lineno);
+				return false;
+			}
+			cfg->log_level = v;
+		} else if (key == "stats_enable") {
+			bool v = false;
+			if (!to_bool(val, &v)) {
+				if (err)
+					*err = "invalid stats_enable at line " + std::to_string(lineno);
+				return false;
+			}
+			cfg->stats_enable = v;
+		} else if (key == "stats_interval_sec") {
+			int v = 0;
+			if (!to_int(val, &v) || v < 1 || v > 3600) {
+				if (err)
+					*err = "invalid stats_interval_sec at line " + std::to_string(lineno);
+				return false;
+			}
+			cfg->stats_interval_sec = v;
 		} else if (key == "h264_path") {
 			if (val.empty()) {
 				if (err)
@@ -188,7 +238,37 @@ bool load_app_config(const std::string &path, AppConfig *cfg, std::string *err) 
 				return false;
 			}
 			cfg->h264_path = val;
+		} else {
+			// Per-channel overrides:
+			//   channel0_h264_path=/userdata/a.h264
+			//   channel1_fps=25
+			std::smatch m;
+			if (std::regex_match(key, m, std::regex("^channel([0-7])_h264_path$"))) {
+				int ch = m[1].str()[0] - '0';
+				if (val.empty()) {
+					if (err)
+						*err = "empty channel_h264_path at line " + std::to_string(lineno);
+					return false;
+				}
+				cfg->channel_h264_path[ch] = val;
+			} else if (std::regex_match(key, m, std::regex("^channel([0-7])_fps$"))) {
+				int ch = m[1].str()[0] - '0';
+				int v = 0;
+				if (!to_int(val, &v) || v <= 0 || v > 120) {
+					if (err)
+						*err = "invalid channel_fps at line " + std::to_string(lineno);
+					return false;
+				}
+				cfg->channel_fps[ch] = v;
+			}
 		}
+	}
+
+	for (int i = 0; i < kMaxUvcChannels; i++) {
+		if (cfg->channel_h264_path[i].empty())
+			cfg->channel_h264_path[i] = cfg->h264_path;
+		if (cfg->channel_fps[i] <= 0)
+			cfg->channel_fps[i] = cfg->fps;
 	}
 
 	return true;

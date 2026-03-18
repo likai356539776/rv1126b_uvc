@@ -10,6 +10,19 @@ Extend current single-channel `my_uvc` to support multiple UVC functions (for ex
 - Single source: one H.264 file
 - Single stream context in `main.cpp`
 
+## Current v1.2 Status
+
+- Multi-UVC route count is now configurable (`channels` in app and `-n/--channels` in usb script).
+- Supports per-channel independent file/fps overrides:
+  - `channelN_h264_path`
+  - `channelN_fps`
+- Suitable for both enumeration tests and basic independent multi-stream validation.
+- Independent stream on/off behavior has been fixed per channel.
+- Added observability and robustness controls:
+  - `log_level` (error/info/debug)
+  - `stats_enable` + `stats_interval_sec` (per-channel periodic stats)
+  - `startup_prime_frames` (stream-reopen protection by repeating first IDR+SPS/PPS)
+
 ## Target v2 Architecture
 
 - `UsbGadgetManager`
@@ -53,11 +66,17 @@ Extend current single-channel `my_uvc` to support multiple UVC functions (for ex
 4. **Fault isolation**
    - One channel failure should not stop other channels.
 
-## Suggested Milestones
+5. **Observability**
+   - Keep per-channel counters (realtime fps, total frames, error count, stream on/off).
+   - Keep edge logs for stream transitions to simplify long-run pressure tests.
 
-- M1: dual-channel file source (`uvc.gs1`, `uvc.gs2`) with same file
-- M2: dual-channel independent files and independent fps
-- M3: migrate one channel to real-time VENC source
+## Suggested Milestones (Updated)
+
+- M1: dual-channel file source (`uvc.gs1`, `uvc.gs2`) with same file ✅
+- M2: dual-channel independent files and independent fps ✅
+- M3: stream reopen robustness (startup priming + per-channel stream gate) ✅
+- M4: enrich error telemetry (last error reason + timestamp per channel)
+- M5: migrate one channel to real-time VENC source
 
 ## Risks
 

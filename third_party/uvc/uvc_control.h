@@ -66,6 +66,8 @@ void uvc_control_init(int width, int height, int fcc, int fps);
 void uvc_control_exit();
 void uvc_read_camera_buffer(void *cam_buf, int cam_fd, size_t cam_size, void *extra_data,
                             size_t extra_size);
+void uvc_read_camera_buffer_by_id(void *cam_buf, int cam_fd, size_t cam_size, void *extra_data,
+                                  size_t extra_size, int video_id);
 int get_uvc_streaming_intf(void);
 void uvc_control_signal(void);
 int uvc_control_run(uint32_t flags);

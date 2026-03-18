@@ -54,10 +54,13 @@ struct uvc_ctrl {
 	int fps;
 };
 
-static struct uvc_ctrl uvc_ctrl[2];
+#define UVC_CTRL_MAX 8
+static struct uvc_ctrl uvc_ctrl[UVC_CTRL_MAX];
+static int uvc_ctrl_count = 0;
 struct uvc_encode uvc_enc;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static int uvc_streaming_intf = -1;
+static int uvc_active_streams = 0;
 
 static pthread_t run_id = 0;
 static bool run_flag = true;
@@ -132,10 +135,15 @@ int check_uvc_video_id(void) {
 
 	if (getenv("UVC_CNT"))
 		uvc_cnt = atoi(getenv("UVC_CNT"));
+	if (uvc_cnt < 1)
+		uvc_cnt = 1;
+	if (uvc_cnt > UVC_CTRL_MAX)
+		uvc_cnt = UVC_CTRL_MAX;
 
 	memset(&uvc_ctrl, 0, sizeof(uvc_ctrl));
-	uvc_ctrl[0].id = -1;
-	uvc_ctrl[1].id = -1;
+	for (i = 0; i < UVC_CTRL_MAX; i++)
+		uvc_ctrl[i].id = -1;
+	uvc_ctrl_count = 0;
 	max = get_max_video_number();
 	if (max < 0)
 		return -1;
@@ -148,11 +156,10 @@ int check_uvc_video_id(void) {
 		if (fp) {
 			if (fgets(buf, sizeof(buf), fp)) {
 				if (is_uvc_video(buf)) {
-					find_cnt++;
-					if (uvc_ctrl[1].id < 0)
-						uvc_ctrl[1].id = i;
-					else if (uvc_ctrl[0].id < 0)
-						uvc_ctrl[0].id = i;
+					if (find_cnt < UVC_CTRL_MAX) {
+						uvc_ctrl[find_cnt].id = i;
+						find_cnt++;
+					}
 				}
 			}
 			pclose(fp);
@@ -160,54 +167,80 @@ int check_uvc_video_id(void) {
 		if (find_cnt >= uvc_cnt)
 			break;
 	}
-	if (uvc_ctrl[0].id < 0 && uvc_ctrl[1].id < 0) {
+	if (find_cnt <= 0) {
 		printf("Please configure uvc...\n");
 		return -1;
 	}
-	if (uvc_ctrl[0].id < 0 && uvc_ctrl[1].id >= 0) {
-		uvc_ctrl[0].id = uvc_ctrl[1].id;
-		uvc_ctrl[1].id = -1;
-	}
+	uvc_ctrl_count = find_cnt;
+	printf("detected uvc video nodes: %d\n", uvc_ctrl_count);
 	query_uvc_streaming_intf();
 	return 0;
 }
 
 void add_uvc_video() {
-	if (uvc_ctrl[0].id >= 0)
-		uvc_video_id_add(uvc_ctrl[0].id);
-	if (uvc_ctrl[1].id >= 0)
-		uvc_video_id_add(uvc_ctrl[1].id);
+	int i;
+	for (i = 0; i < uvc_ctrl_count; i++) {
+		if (uvc_ctrl[i].id >= 0)
+			uvc_video_id_add(uvc_ctrl[i].id);
+	}
 }
 
 void uvc_control_init(int width, int height, int fcc, int fps) {
 	pthread_mutex_lock(&lock);
-	memset(&uvc_enc, 0, sizeof(uvc_enc));
-	if (uvc_encode_init(&uvc_enc, width, height, fcc)) {
-		printf("%s fail!\n", __func__);
-		abort();
+	if (uvc_active_streams == 0) {
+		memset(&uvc_enc, 0, sizeof(uvc_enc));
+		if (uvc_encode_init(&uvc_enc, width, height, fcc)) {
+			printf("%s fail!\n", __func__);
+			abort();
+		}
 	}
+	uvc_active_streams++;
 	pthread_mutex_unlock(&lock);
 	if (uvc_open_camera_cb)
 		uvc_open_camera_cb(width, height, fcc, fps);
 }
 
 void uvc_control_exit() {
+	pthread_mutex_lock(&lock);
+	if (uvc_active_streams > 0)
+		uvc_active_streams--;
+	if (uvc_active_streams == 0) {
+		uvc_encode_exit(&uvc_enc);
+		memset(&uvc_enc, 0, sizeof(uvc_enc));
+	}
+	pthread_mutex_unlock(&lock);
 	if (uvc_close_camera_cb)
 		uvc_close_camera_cb();
-	pthread_mutex_lock(&lock);
-	uvc_encode_exit(&uvc_enc);
-	memset(&uvc_enc, 0, sizeof(uvc_enc));
-	pthread_mutex_unlock(&lock);
 }
 
 void uvc_read_camera_buffer(void *cam_buf, int cam_fd, size_t cam_size, void *extra_data,
                             size_t extra_size) {
+	int i;
 	pthread_mutex_lock(&lock);
 	if (cam_size <= uvc_enc.width * uvc_enc.height * 2) {
-		uvc_enc.video_id = uvc_video_id_get(0);
 		uvc_enc.extra_data = extra_data;
 		uvc_enc.extra_size = extra_size;
-		uvc_encode_process(&uvc_enc, cam_buf, cam_fd, cam_size);
+		for (i = 0; i < uvc_ctrl_count; i++) {
+			uvc_enc.video_id = uvc_video_id_get(i);
+			if (uvc_enc.video_id >= 0)
+				uvc_encode_process(&uvc_enc, cam_buf, cam_fd, cam_size);
+		}
+	} else if (uvc_enc.width > 0 && uvc_enc.height > 0) {
+		printf("%s: cam_size = %u, uvc_enc.width = %d, uvc_enc.height = %d\n", __func__, cam_size,
+		       uvc_enc.width, uvc_enc.height);
+	}
+	pthread_mutex_unlock(&lock);
+}
+
+void uvc_read_camera_buffer_by_id(void *cam_buf, int cam_fd, size_t cam_size, void *extra_data,
+                                  size_t extra_size, int video_id) {
+	pthread_mutex_lock(&lock);
+	if (cam_size <= uvc_enc.width * uvc_enc.height * 2) {
+		uvc_enc.video_id = video_id;
+		uvc_enc.extra_data = extra_data;
+		uvc_enc.extra_size = extra_size;
+		if (uvc_enc.video_id >= 0)
+			uvc_encode_process(&uvc_enc, cam_buf, cam_fd, cam_size);
 	} else if (uvc_enc.width > 0 && uvc_enc.height > 0) {
 		printf("%s: cam_size = %u, uvc_enc.width = %d, uvc_enc.height = %d\n", __func__, cam_size,
 		       uvc_enc.width, uvc_enc.height);
