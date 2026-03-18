@@ -20,6 +20,34 @@
 - Copy binaries/scripts/config to board.
 - Ensure executable permission:
   - `chmod +x /usr/bin/my_uvc_usb_config.sh`
+- Recommended deploy with product profile:
+  - 1-channel independent:
+    - `./my_uvc_install_to_device.sh --config config/profiles/my_uvc_1ch_independent.ini`
+  - 2-channel independent:
+    - `./my_uvc_install_to_device.sh --config config/profiles/my_uvc_2ch_independent.ini`
+  - 4-channel independent:
+    - `./my_uvc_install_to_device.sh --config config/profiles/my_uvc_4ch_independent.ini`
+  - 6/8/10/12/16-channel independent:
+    - `./my_uvc_install_to_device.sh --config config/profiles/my_uvc_6ch_independent.ini`
+    - `./my_uvc_install_to_device.sh --config config/profiles/my_uvc_8ch_independent.ini`
+    - `./my_uvc_install_to_device.sh --config config/profiles/my_uvc_10ch_independent.ini`
+    - `./my_uvc_install_to_device.sh --config config/profiles/my_uvc_12ch_independent.ini`
+    - `./my_uvc_install_to_device.sh --config config/profiles/my_uvc_16ch_independent.ini`
+  - one-command selector:
+    - `./scripts/select_profile.sh 1 --install`
+    - `./scripts/select_profile.sh 2 --install`
+    - `./scripts/select_profile.sh 4 --install`
+    - `./scripts/select_profile.sh 6 --install`
+    - `./scripts/select_profile.sh 8 --install`
+    - `./scripts/select_profile.sh 10 --install`
+    - `./scripts/select_profile.sh 12 --install`
+    - `./scripts/select_profile.sh 16 --install`
+  - deploy + auto-start on board:
+    - `./scripts/select_profile.sh 4 --install --run`
+  - deploy + auto-start + custom usb fps:
+    - `./scripts/select_profile.sh 4 --install --run --fps 20`
+  - deploy + auto-start + custom size:
+    - `./scripts/select_profile.sh 4 --install --run --size 1280x720`
 
 ## 3) USB Gadget Check (Board)
 
@@ -33,6 +61,8 @@
 
 - Board:
   - `my_uvc -c /userdata/my_uvc.ini`
+  - or with explicit size override:
+    - `my_uvc -c /userdata/my_uvc.ini --size 640x480`
 - Host:
   - `v4l2-ctl -d /dev/videoX --list-formats-ext`
   - `ffplay -f v4l2 -input_format h264 -video_size 640x480 -framerate 25 /dev/videoX`
@@ -61,6 +91,32 @@
   - Host:
     - `v4l2-ctl --list-devices`
     - open both video nodes with two players.
+
+## 4.2.1) 4-Channel Independent Quick Check
+
+- Board USB config:
+  - `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 4 --verbose`
+- Board app:
+  - `my_uvc -c /userdata/my_uvc.ini`
+- Host:
+  - `v4l2-ctl --list-devices`
+  - open 4 `/dev/videoX` nodes separately (4 players or scripts)
+- Recommended profile:
+  - `config/profiles/my_uvc_4ch_independent.ini`
+
+## 4.2.2) High-Channel (6/8/10/12/16) Quick Check
+
+- Use matching profile:
+  - `config/profiles/my_uvc_6ch_independent.ini`
+  - `config/profiles/my_uvc_8ch_independent.ini`
+  - `config/profiles/my_uvc_10ch_independent.ini`
+  - `config/profiles/my_uvc_12ch_independent.ini`
+  - `config/profiles/my_uvc_16ch_independent.ini`
+- Selector example (16 channels):
+  - `./scripts/select_profile.sh 16 --install --run --fps 10 --size 640x480`
+- Verify:
+  - `my_uvc_usb_config.sh` log shows `channels=16`
+  - app stats output includes all configured channels
 
 - Optional per-channel independent source:
   - set in `my_uvc.ini`:

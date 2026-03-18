@@ -22,6 +22,8 @@ set -euo pipefail
 # If neither is provided, adb runs without -s (default behavior).
 ADB_SERIAL_ENV="${ADB_SERIAL:-}"
 ADB_SERIAL_ARG=""
+LOCAL_CONFIG_PATH="config/my_uvc.ini"
+REMOTE_CONFIG_PATH="/userdata/my_uvc.ini"
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 	--adb-serial)
@@ -29,19 +31,36 @@ while [[ $# -gt 0 ]]; do
 		ADB_SERIAL_ARG="$2"
 		shift 2
 		;;
+	--config)
+		[[ $# -ge 2 ]] || { echo "Missing value for --config"; exit 1; }
+		LOCAL_CONFIG_PATH="$2"
+		shift 2
+		;;
+	--remote-config)
+		[[ $# -ge 2 ]] || { echo "Missing value for --remote-config"; exit 1; }
+		REMOTE_CONFIG_PATH="$2"
+		shift 2
+		;;
 	-h|--help)
-		echo "Usage: $0 [--adb-serial <serial>]"
+		echo "Usage: $0 [--adb-serial <serial>] [--config <local_ini>] [--remote-config <remote_ini_path>]"
+		echo "  --config         Local config file to deploy (default: config/my_uvc.ini)"
+		echo "  --remote-config  Target config path on device (default: /userdata/my_uvc.ini)"
 		exit 0
 		;;
 	*)
 		echo "Unknown option: $1"
-		echo "Usage: $0 [--adb-serial <serial>]"
+		echo "Usage: $0 [--adb-serial <serial>] [--config <local_ini>] [--remote-config <remote_ini_path>]"
 		exit 1
 		;;
 	esac
 done
 
 ADB_SERIAL_FINAL="${ADB_SERIAL_ARG:-$ADB_SERIAL_ENV}"
+
+if [[ ! -f "${LOCAL_CONFIG_PATH}" ]]; then
+	echo "[my_uvc_install] Config file not found: ${LOCAL_CONFIG_PATH}"
+	exit 1
+fi
 
 adb_exec() {
 	if [[ -n "${ADB_SERIAL_FINAL}" ]]; then
@@ -56,16 +75,18 @@ if [[ -n "${ADB_SERIAL_FINAL}" ]]; then
 else
 	echo "[my_uvc_install] Using default adb target (no ADB_SERIAL specified)"
 fi
+echo "[my_uvc_install] Local config: ${LOCAL_CONFIG_PATH}"
+echo "[my_uvc_install] Remote config: ${REMOTE_CONFIG_PATH}"
 
 # Deploy artifacts: executable + usb config script + runtime config.
 adb_exec push build-rv1126b/my_uvc /usr/bin/
 adb_exec push scripts/my_uvc_usb_config.sh /usr/bin/
-adb_exec push config/my_uvc.ini /userdata/
+adb_exec push "${LOCAL_CONFIG_PATH}" "${REMOTE_CONFIG_PATH}"
 
 # Set permissions on target board.
 adb_exec shell chmod +x /usr/bin/my_uvc
 adb_exec shell chmod +x /usr/bin/my_uvc_usb_config.sh
-adb_exec shell chmod 666 /userdata/my_uvc.ini
+adb_exec shell chmod 666 "${REMOTE_CONFIG_PATH}"
 
 echo "[my_uvc_install] Deploy finished."
 

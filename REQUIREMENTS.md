@@ -102,6 +102,16 @@ v1 模块拆分遵循 `rkipc` 的核心思路：
 - 配置文件：`my_uvc.ini`（最小配置）
 - 快速构建脚本：`autobuild.sh`
 - 快速部署脚本：`my_uvc_install_to_device.sh`
+- 配置选择脚本：`scripts/select_profile.sh`（按 1/2/4 路产品选择配置）
+- 产品配置模板：
+  - `config/profiles/my_uvc_1ch_independent.ini`
+  - `config/profiles/my_uvc_2ch_independent.ini`
+  - `config/profiles/my_uvc_4ch_independent.ini`
+  - `config/profiles/my_uvc_6ch_independent.ini`
+  - `config/profiles/my_uvc_8ch_independent.ini`
+  - `config/profiles/my_uvc_10ch_independent.ini`
+  - `config/profiles/my_uvc_12ch_independent.ini`
+  - `config/profiles/my_uvc_16ch_independent.ini`
 - 本文档：`REQUIREMENTS.md`
 
 构建脚本常用参数：
@@ -111,6 +121,12 @@ v1 模块拆分遵循 `rkipc` 的核心思路：
 - `autobuild.sh --jobs N`
 - `autobuild.sh --install`（构建成功后自动执行部署脚本）
 - `autobuild.sh --install --adb-serial <serial>`（多设备时指定目标）
+- `autobuild.sh --install --config config/profiles/my_uvc_4ch_independent.ini`（按产品配置部署）
+- `scripts/select_profile.sh 4 --install`（按路数快速选择并部署配置）
+- `scripts/select_profile.sh 4 --install --run`（选择配置、部署并自动启动板端流程）
+- `scripts/select_profile.sh 4 --install --run --fps 20`（自动启动时指定 USB 配置帧率）
+- `scripts/select_profile.sh 4 --install --run --size 1280x720`（自动启动时指定 USB 分辨率）
+- `scripts/select_profile.sh 16 --install --run --fps 10`（16路配置一键部署与启动）
 
 ## 9. 手动部署与验证流程要求
 
@@ -140,13 +156,14 @@ v1 模块拆分遵循 `rkipc` 的核心思路：
 
 | 参数名 | 默认值 | 有效范围/格式 | CLI 可覆盖 | 简要说明 |
 |---|---:|---|---|---|
-| `channels` | `1` | `1..8` | `--channels` | UVC 路数 |
+| `channels` | `1` | `1..16` | `--channels` | UVC 路数 |
 | `width` | `640` | `>0` | `--width` | 输出宽度 |
 | `height` | `480` | `>0` | `--height` | 输出高度 |
+| `size` | `640x480` | `WxH`，`W/H>0` | `--size` | 一次性覆盖宽高（等价于同时传 `--width` 和 `--height`） |
 | `fps` | `25` | `1..120` | `--fps` | 全局默认帧率 |
 | `h264_path` | `/userdata/200frames_count.h264` | 非空路径 | `--file` | 全局默认 H.264 文件 |
-| `channelN_h264_path` | 继承 `h264_path` | `N=0..7`，非空路径 | 否 | 每路文件覆盖 |
-| `channelN_fps` | 继承 `fps` | `N=0..7`，`1..120` | 否 | 每路帧率覆盖 |
+| `channelN_h264_path` | 继承 `h264_path` | `N=0..15`，非空路径 | 否 | 每路文件覆盖 |
+| `channelN_fps` | 继承 `fps` | `N=0..15`，`1..120` | 否 | 每路帧率覆盖 |
 | `loop_file` | `1` | `0/1` | 否 | 文件播完是否循环 |
 | `prefer_host_fps` | `1` | `0/1` | 否 | 预留开关，优先主机协商帧率 |
 | `sync_to_idr_on_open` | `1` | `0/1` | 否 | 开流时是否从 IDR 对齐 |
@@ -165,9 +182,29 @@ v1 模块拆分遵循 `rkipc` 的核心思路：
 | `-w` | `640` | `>0` | UVC 宽度 |
 | `-h` | `480` | `>0` | UVC 高度 |
 | `-p`, `--fps` | `25` | `5/10/15/20/25/30` | 期望协商帧率 |
-| `-n`, `--channels` | `1` | `1..8` | UVC 路数，创建 `uvc.gsN` |
+| `-n`, `--channels` | `1` | `1..16` | UVC 路数，创建 `uvc.gsN` |
 | `--verbose` | 关闭 | 开关参数 | 打印详细配置过程 |
 | `--no-unbind` | 关闭 | 开关参数 | 跳过 UDC 解绑（默认先解绑再重绑） |
+
+#### C) 部署脚本 `my_uvc_install_to_device.sh`
+
+| 参数 | 默认值 | 有效范围/格式 | 简要说明 |
+|---|---:|---|---|
+| `--adb-serial` | 空 | 设备序列号 | 指定 adb 目标设备 |
+| `--config` | `config/my_uvc.ini` | 本地 ini 文件路径 | 按产品选择要下发的配置文件 |
+| `--remote-config` | `/userdata/my_uvc.ini` | 板端路径 | 配置文件在板端的落盘位置 |
+
+#### D) 配置选择脚本 `scripts/select_profile.sh`
+
+| 参数 | 默认值 | 有效范围/格式 | 简要说明 |
+|---|---:|---|---|
+| 位置参数 / `--profile` | 无 | `1` / `2` / `4` / `6` / `8` / `10` / `12` / `16` | 选择产品路数配置模板 |
+| `--install` | 关闭 | 开关参数 | 调用部署脚本下发选中的配置 |
+| `--run` | 关闭 | 开关参数 | 在板端执行 USB 配置并后台启动 `my_uvc` |
+| `--fps` | `25` | `5/10/15/20/25/30` | `--run` 时 USB 配置脚本使用的 fps |
+| `--size` | `640x480` | `WxH`，`W/H>0` | `--run` 时 USB 配置脚本使用的分辨率，并传给 `my_uvc --size` |
+| `--adb-serial` | 空 | 设备序列号 | 指定 adb 目标设备 |
+| `--remote-config` | `/userdata/my_uvc.ini` | 板端路径 | 运行时使用的配置文件路径 |
 
 ## 10. 验收标准（v1）
 
@@ -198,8 +235,11 @@ v1 模块拆分遵循 `rkipc` 的核心思路：
 
 ## 13. 后续规划
 
+- 文档入口索引：`docs/README.md`
 - 详细测试流程见：`docs/TEST_CHECKLIST.md`
+- 中文测试流程见：`docs/TEST_CHECKLIST_CN.md`
 - 多路架构设计见：`docs/MULTI_UVC_DESIGN.md`
+- 中文多路设计见：`docs/MULTI_UVC_DESIGN_CN.md`
 
 ---
 

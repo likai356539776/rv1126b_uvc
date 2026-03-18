@@ -121,7 +121,7 @@ bool load_app_config(const std::string &path, AppConfig *cfg, std::string *err) 
 
 		if (key == "channels") {
 			int v = 0;
-			if (!to_int(val, &v) || v < 1 || v > 8) {
+			if (!to_int(val, &v) || v < 1 || v > kMaxUvcChannels) {
 				if (err)
 					*err = "invalid channels at line " + std::to_string(lineno);
 				return false;
@@ -243,23 +243,30 @@ bool load_app_config(const std::string &path, AppConfig *cfg, std::string *err) 
 			//   channel0_h264_path=/userdata/a.h264
 			//   channel1_fps=25
 			std::smatch m;
-			if (std::regex_match(key, m, std::regex("^channel([0-7])_h264_path$"))) {
-				int ch = m[1].str()[0] - '0';
-				if (val.empty()) {
+			if (std::regex_match(key, m, std::regex("^channel([0-9]+)_(h264_path|fps)$"))) {
+				int ch = -1;
+				if (!to_int(m[1].str(), &ch) || ch < 0 || ch >= kMaxUvcChannels) {
 					if (err)
-						*err = "empty channel_h264_path at line " + std::to_string(lineno);
+						*err = "invalid channel index at line " + std::to_string(lineno);
 					return false;
 				}
-				cfg->channel_h264_path[ch] = val;
-			} else if (std::regex_match(key, m, std::regex("^channel([0-7])_fps$"))) {
-				int ch = m[1].str()[0] - '0';
-				int v = 0;
-				if (!to_int(val, &v) || v <= 0 || v > 120) {
-					if (err)
-						*err = "invalid channel_fps at line " + std::to_string(lineno);
-					return false;
+				std::string field = m[2].str();
+				if (field == "h264_path") {
+					if (val.empty()) {
+						if (err)
+							*err = "empty channel_h264_path at line " + std::to_string(lineno);
+						return false;
+					}
+					cfg->channel_h264_path[ch] = val;
+				} else if (field == "fps") {
+					int v = 0;
+					if (!to_int(val, &v) || v <= 0 || v > 120) {
+						if (err)
+							*err = "invalid channel_fps at line " + std::to_string(lineno);
+						return false;
+					}
+					cfg->channel_fps[ch] = v;
 				}
-				cfg->channel_fps[ch] = v;
 			}
 		}
 	}

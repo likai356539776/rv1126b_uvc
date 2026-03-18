@@ -12,6 +12,7 @@ set -euo pipefail
 #   ./autobuild.sh -c --release       # clean + Release build
 #   ./autobuild.sh --install          # Build then run deploy script
 #   ./autobuild.sh --install --adb-serial <serial>
+#   ./autobuild.sh --install --config config/profiles/my_uvc_4ch_independent.ini
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="${PROJECT_DIR}/build-rv1126b"
@@ -21,15 +22,17 @@ DO_CLEAN=0
 DO_INSTALL=0
 BUILD_JOBS="$(nproc)"
 ADB_SERIAL_VALUE=""
+LOCAL_CONFIG_PATH=""
 
 print_usage() {
-	echo "Usage: $0 [--clean|-c] [--debug|-d | --release|-r] [--jobs|-j N] [--install] [--adb-serial <serial>] [--help|-h]"
+	echo "Usage: $0 [--clean|-c] [--debug|-d | --release|-r] [--jobs|-j N] [--install] [--adb-serial <serial>] [--config <local_ini>] [--help|-h]"
 	echo "  --clean, -c      Remove build directory before building"
 	echo "  --debug, -d      Build with CMAKE_BUILD_TYPE=Debug"
 	echo "  --release, -r    Build with CMAKE_BUILD_TYPE=Release (default)"
 	echo "  --jobs, -j N     Set parallel build jobs (default: nproc)"
 	echo "  --install        Run my_uvc_install_to_device.sh after successful build"
 	echo "  --adb-serial     Optional adb serial used by install step"
+	echo "  --config         Local config file used by install step"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -58,6 +61,11 @@ while [[ $# -gt 0 ]]; do
 	--adb-serial)
 		[[ $# -ge 2 ]] || { echo "Missing value for --adb-serial"; exit 1; }
 		ADB_SERIAL_VALUE="$2"
+		shift 2
+		;;
+	--config)
+		[[ $# -ge 2 ]] || { echo "Missing value for --config"; exit 1; }
+		LOCAL_CONFIG_PATH="$2"
 		shift 2
 		;;
 	-h|--help)
@@ -102,9 +110,12 @@ if [[ ${DO_INSTALL} -eq 1 ]]; then
 		chmod +x "${INSTALL_SCRIPT}"
 	fi
 	echo "[autobuild] Running install script..."
+	INSTALL_ARGS=()
 	if [[ -n "${ADB_SERIAL_VALUE}" ]]; then
-		ADB_SERIAL="${ADB_SERIAL_VALUE}" "${INSTALL_SCRIPT}"
-	else
-		"${INSTALL_SCRIPT}"
+		INSTALL_ARGS+=(--adb-serial "${ADB_SERIAL_VALUE}")
 	fi
+	if [[ -n "${LOCAL_CONFIG_PATH}" ]]; then
+		INSTALL_ARGS+=(--config "${LOCAL_CONFIG_PATH}")
+	fi
+	"${INSTALL_SCRIPT}" "${INSTALL_ARGS[@]}"
 fi

@@ -54,7 +54,7 @@ struct uvc_ctrl {
 	int fps;
 };
 
-#define UVC_CTRL_MAX 8
+#define UVC_CTRL_MAX 16
 static struct uvc_ctrl uvc_ctrl[UVC_CTRL_MAX];
 static int uvc_ctrl_count = 0;
 struct uvc_encode uvc_enc;

@@ -348,6 +348,7 @@ void close_uvc_cb(void) {
 void print_usage(const char *argv0) {
 	std::fprintf(stderr,
 	             "Usage: %s [-c config] [--channels n] [--file path] [--width w] [--height h] [--fps fps] "
+	             "[--size WxH] "
 	             "[--log-every n] [--log-level 0|1|2] [--stats-enable 0|1] "
 	             "[--stats-interval sec] [--startup-prime-frames n]\n",
 	             argv0);
@@ -364,6 +365,7 @@ int main(int argc, char **argv) {
 	bool cli_channels = false;
 	bool cli_width = false;
 	bool cli_height = false;
+	bool cli_size = false;
 	bool cli_fps = false;
 	bool cli_log_every = false;
 	bool cli_log_level = false;
@@ -387,6 +389,17 @@ int main(int argc, char **argv) {
 		} else if (a == "--height" && i + 1 < argc) {
 			cli_cfg.height = std::stoi(argv[++i]);
 			cli_height = true;
+		} else if (a == "--size" && i + 1 < argc) {
+			int w = 0;
+			int h = 0;
+			std::string size = argv[++i];
+			if (std::sscanf(size.c_str(), "%dx%d", &w, &h) != 2 || w <= 0 || h <= 0) {
+				std::fprintf(stderr, "[my_uvc] invalid --size: %s (expected WxH)\n", size.c_str());
+				return 1;
+			}
+			cli_cfg.width = w;
+			cli_cfg.height = h;
+			cli_size = true;
 		} else if (a == "--fps" && i + 1 < argc) {
 			cli_cfg.fps = std::stoi(argv[++i]);
 			cli_fps = true;
@@ -427,6 +440,10 @@ int main(int argc, char **argv) {
 		cfg.width = cli_cfg.width;
 	if (cli_height)
 		cfg.height = cli_cfg.height;
+	if (cli_size) {
+		cfg.width = cli_cfg.width;
+		cfg.height = cli_cfg.height;
+	}
 	if (cli_fps)
 		cfg.fps = cli_cfg.fps;
 	if (cli_log_every)
@@ -441,8 +458,8 @@ int main(int argc, char **argv) {
 		cfg.startup_prime_frames = cli_cfg.startup_prime_frames;
 	if (cfg.channels < 1)
 		cfg.channels = 1;
-	if (cfg.channels > 8)
-		cfg.channels = 8;
+	if (cfg.channels > kMaxUvcChannels)
+		cfg.channels = kMaxUvcChannels;
 	if (cfg.log_level < 0)
 		cfg.log_level = 0;
 	if (cfg.log_level > 2)

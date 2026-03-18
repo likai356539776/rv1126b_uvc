@@ -4,7 +4,7 @@
 #include <array>
 #include <string>
 
-constexpr int kMaxUvcChannels = 8;
+constexpr int kMaxUvcChannels = 16;
 
 struct AppConfig {
 	int channels;

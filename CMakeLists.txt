@@ -43,3 +43,14 @@ target_link_libraries(my_uvc PRIVATE pthread)
 install(TARGETS my_uvc RUNTIME DESTINATION bin)
 install(PROGRAMS scripts/my_uvc_usb_config.sh DESTINATION bin)
 install(FILES config/my_uvc.ini DESTINATION share)
+install(FILES
+	config/profiles/my_uvc_1ch_independent.ini
+	config/profiles/my_uvc_2ch_independent.ini
+	config/profiles/my_uvc_4ch_independent.ini
+	config/profiles/my_uvc_6ch_independent.ini
+	config/profiles/my_uvc_8ch_independent.ini
+	config/profiles/my_uvc_10ch_independent.ini
+	config/profiles/my_uvc_12ch_independent.ini
+	config/profiles/my_uvc_16ch_independent.ini
+	DESTINATION share/profiles
+)

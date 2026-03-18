@@ -12,7 +12,7 @@ Extend current single-channel `my_uvc` to support multiple UVC functions (for ex
 
 ## Current v1.2 Status
 
-- Multi-UVC route count is now configurable (`channels` in app and `-n/--channels` in usb script).
+- Multi-UVC route count is now configurable (`channels` in app and `-n/--channels` in usb script), current upper bound is 16.
 - Supports per-channel independent file/fps overrides:
   - `channelN_h264_path`
   - `channelN_fps`
