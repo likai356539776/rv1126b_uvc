@@ -72,6 +72,25 @@
 
 #define pixfmtstr(x) (x) & 0xff, ((x) >> 8) & 0xff, ((x) >> 16) & 0xff, ((x) >> 24) & 0xff
 
+static int uvc_trace_enabled(void) {
+	static int inited = 0;
+	static int enabled = 0;
+
+	if (!inited) {
+		const char *env = getenv("MY_UVC_TRACE");
+		enabled = (env && env[0] && env[0] != '0') ? 1 : 0;
+		inited = 1;
+	}
+
+	return enabled;
+}
+
+#define UVC_TRACE(...)                                                                              \
+	do {                                                                                            \
+		if (uvc_trace_enabled())                                                                    \
+			printf(__VA_ARGS__);                                                                    \
+	} while (0)
+
 /*
  * The UVC webcam gadget kernel driver (g_webcam.ko) supports changing
  * the Brightness attribute of the Processing Unit (PU). by default. If
@@ -1513,7 +1532,7 @@ static void uvc_fill_streaming_control(struct uvc_device *dev, struct uvc_stream
 	const struct uvc_format_info *format;
 	const struct uvc_frame_info *frame;
 	unsigned int nframes;
-	printf("uvc_fill_streaming_control iformat is %d\n", iformat);
+	UVC_TRACE("uvc_fill_streaming_control iformat=%d video_id=%d\n", iformat, dev->video_id);
 
 	if (iformat < 0)
 		iformat = uvc_formats_count + iformat;
@@ -1578,7 +1597,8 @@ static void uvc_events_process_standard(struct uvc_device *dev, struct usb_ctrlr
 static void uvc_events_process_control(struct uvc_device *dev, uint8_t req, uint8_t cs,
                                        uint8_t entity_id, uint8_t len,
                                        struct uvc_request_data *resp) {
-	printf("req = %d cs = %d entity_id =%d len = %d \n", req, cs, entity_id, len);
+	UVC_TRACE("req=%u cs=%u entity_id=%u len=%u video_id=%d\n", req, cs, entity_id, len,
+	          dev->video_id);
 	dev->cs = cs;
 	dev->entity_id = entity_id;
 
@@ -2585,14 +2605,14 @@ static void uvc_events_process_control(struct uvc_device *dev, uint8_t req, uint
 	if (resp->length == -EL2HLT) {
 		printf("unsupported: req=%02x, cs=%d, entity_id=%d, len=%d\n", req, cs, entity_id, len);
 	}
-	printf("control request (req %02x cs %02x)\n", req, cs);
+	UVC_TRACE("control request (req %02x cs %02x) video_id=%d\n", req, cs, dev->video_id);
 }
 
 static void uvc_events_process_streaming(struct uvc_device *dev, uint8_t req, uint8_t cs,
                                          struct uvc_request_data *resp) {
 	struct uvc_streaming_control *ctrl;
 
-	printf("streaming request (req %02x cs %02x)\n", req, cs);
+	UVC_TRACE("streaming request (req %02x cs %02x) video_id=%d\n", req, cs, dev->video_id);
 
 	if (cs != UVC_VS_PROBE_CONTROL && cs != UVC_VS_COMMIT_CONTROL)
 		return;
@@ -2672,7 +2692,6 @@ static void uvc_events_process_class(struct uvc_device *dev, struct usb_ctrlrequ
 static void uvc_events_process_setup(struct uvc_device *dev, struct usb_ctrlrequest *ctrl,
                                      struct uvc_request_data *resp) {
 	dev->control = 0;
-	dev->last_setup_wIndex = ctrl->wIndex;
 
 #ifdef ENABLE_USB_REQUEST_DEBUG
 	printf("\nbRequestType %02x bRequest %02x wValue %04x wIndex %04x "
@@ -2686,6 +2705,7 @@ static void uvc_events_process_setup(struct uvc_device *dev, struct usb_ctrlrequ
 		break;
 
 	case USB_TYPE_CLASS:
+		dev->last_setup_wIndex = ctrl->wIndex;
 		uvc_events_process_class(dev, ctrl, resp);
 		break;
 
@@ -2698,7 +2718,8 @@ static int uvc_events_process_control_data(struct uvc_device *dev, uint8_t cs, u
                                            struct uvc_request_data *data) {
 
 	unsigned int *val = (unsigned int *)data->data;
-	printf(" data = %d, length = %d  , current_cs = %d\n", *val, data->length, dev->cs);
+	UVC_TRACE("data=%d length=%d current_cs=%d video_id=%d\n", *val, data->length, dev->cs,
+	          dev->video_id);
 	switch (entity_id) {
 		/* Processing unit 'UVC_VC_PROCESSING_UNIT'. */
 	case 2:
@@ -2821,7 +2842,8 @@ static int uvc_events_process_control_data(struct uvc_device *dev, uint8_t cs, u
 	default:
 		break;
 	}
-	printf("Control Request data phase (cs %02x  data %d entity %02x)\n", cs, *val, entity_id);
+	UVC_TRACE("Control Request data phase (cs %02x data %d entity %02x video_id=%d)\n", cs, *val,
+	          entity_id, dev->video_id);
 	return 0;
 }
 
@@ -2839,19 +2861,18 @@ static int uvc_events_process_data(struct uvc_device *dev, struct uvc_request_da
 
 	switch (dev->control) {
 	case UVC_VS_PROBE_CONTROL:
-		printf("setting probe control, length = %d\n", data->length);
+		UVC_TRACE("setting probe control, length=%d video_id=%d\n", data->length, dev->video_id);
 		target = &dev->probe;
 		break;
 
 	case UVC_VS_COMMIT_CONTROL:
-		printf("setting commit control, length = %d\n", data->length);
+		UVC_TRACE("setting commit control, length=%d video_id=%d\n", data->length, dev->video_id);
 		target = &dev->commit;
 		break;
 
 	default:
-		printf("setting unknown control, length = %d\n", data->length);
-
-		printf("cs: %u, entity_id: %u\n", dev->cs, dev->entity_id);
+		UVC_TRACE("setting unknown control, length=%d cs=%u entity_id=%u video_id=%d\n",
+		          data->length, dev->cs, dev->entity_id, dev->video_id);
 		ret = uvc_events_process_control_data(dev, dev->cs, dev->entity_id, data);
 		if (ret < 0)
 			goto err;
@@ -2867,9 +2888,8 @@ static int uvc_events_process_data(struct uvc_device *dev, struct uvc_request_da
 	iformat = clamp((unsigned int)ctrl->bFormatIndex, 1U, uvc_formats_count);
 	format = &uvc_formats[iformat - 1];
 
-	printf("uvc_events_process_data ctrl->bFormatIndex is %d, ctrl->bFrameIndex is %d, iformat is "
-	       "%d\n",
-	       ctrl->bFormatIndex, ctrl->bFrameIndex, iformat);
+	UVC_TRACE("uvc_events_process_data bFormatIndex=%d bFrameIndex=%d iformat=%d video_id=%d\n",
+	          ctrl->bFormatIndex, ctrl->bFrameIndex, iformat, dev->video_id);
 
 	nframes = 0;
 	while (format->frames[nframes].width != 0)
@@ -2899,8 +2919,8 @@ static int uvc_events_process_data(struct uvc_device *dev, struct uvc_request_da
 		dev->width = frame->width;
 		dev->height = frame->height;
 		dev->imgsize = frame->width * frame->height * 2 /*1.5*/;
-		printf("uvc_events_process_data:format->fcc:%d,dev->width:%d,dev->imgsize:%d\n",
-		       format->fcc, dev->width, dev->imgsize);
+		UVC_TRACE("uvc_events_process_data fcc=%d width=%d imgsize=%d video_id=%d\n", format->fcc,
+		          dev->width, dev->imgsize, dev->video_id);
 		target->dwMaxVideoFrameSize = dev->imgsize;
 		break;
 	}
@@ -2913,6 +2933,9 @@ static int uvc_events_process_data(struct uvc_device *dev, struct uvc_request_da
 		dev->width = frame->width;
 		dev->height = frame->height;
 		dev->fps = 10000000 / target->dwFrameInterval;
+		printf("UVC_COMMIT: video_id=%d stream_intf=%u last_wIndex=0x%04x fmt=%c%c%c%c %ux%u fps=%u\n",
+		       dev->video_id, dev->streaming_intf, dev->last_setup_wIndex, pixfmtstr(dev->fcc),
+		       dev->width, dev->height, dev->fps);
 		/*
 		 * Try to set the default format at the V4L2 video capture
 		 * device as requested by the user.

@@ -34,7 +34,7 @@ RUN_MODE="adb"
 USB_EXTRA_ARGS=()
 
 print_usage() {
-	echo "Usage: $0 [1|2|4|6|8|10|12|16] [--profile 1|2|4|6|8|10|12|16] [--install] [--run] [--run-mode adb|serial-safe] [--fps 5|10|15|20|25|30] [--size WxH] [--adb-serial <serial>] [--remote-config <path>] [--help]"
+	echo "Usage: $0 [1|2|4|6|8|10|12|16] [--profile N] [--install] [--run] [--run-mode adb|serial-safe] [--fps FPS] [--size WxH] [--stop-system-usb] [--adb-serial S] [--remote-config P] [--help]"
 	echo "  profile              Select independent channel profile"
 	echo "  --install           Deploy selected profile via my_uvc_install_to_device.sh"
 	echo "  --run               Run board startup flow after selection/deploy"

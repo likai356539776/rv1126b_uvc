@@ -147,6 +147,12 @@ int check_uvc_video_id(void) {
 	max = get_max_video_number();
 	if (max < 0)
 		return -1;
+	/*
+	 * 参照 rkipc 的逻辑：
+	 * - 扫描仍按 video id 从大到小（便于快速找到 gadget 节点）
+	 * - 但写入 uvc_ctrl[] 时按“反向”写入，确保 uvc_video_id_get(0) 对应更小的 video id，
+	 *   这样主机打开第 1 路时更容易对应到 channel0（避免通道顺序倒序）。
+	 */
 	for (i = max; i >= 0; i--) {
 		snprintf(cmd, sizeof(cmd), "/sys/class/video4linux/video%d/name", i);
 		if (access(cmd, F_OK))
@@ -156,8 +162,13 @@ int check_uvc_video_id(void) {
 		if (fp) {
 			if (fgets(buf, sizeof(buf), fp)) {
 				if (is_uvc_video(buf)) {
-					if (find_cnt < UVC_CTRL_MAX) {
-						uvc_ctrl[find_cnt].id = i;
+					if (find_cnt < uvc_cnt && find_cnt < UVC_CTRL_MAX) {
+						int store = (uvc_cnt - 1) - find_cnt;
+						if (store < 0)
+							store = 0;
+						if (store >= UVC_CTRL_MAX)
+							store = UVC_CTRL_MAX - 1;
+						uvc_ctrl[store].id = i;
 						find_cnt++;
 					}
 				}
@@ -171,7 +182,9 @@ int check_uvc_video_id(void) {
 		printf("Please configure uvc...\n");
 		return -1;
 	}
-	uvc_ctrl_count = find_cnt;
+	uvc_ctrl_count = uvc_cnt;
+	if (uvc_ctrl_count > find_cnt)
+		uvc_ctrl_count = find_cnt;
 	printf("detected uvc video nodes: %d\n", uvc_ctrl_count);
 	query_uvc_streaming_intf();
 	return 0;
