@@ -44,6 +44,8 @@
     - `./scripts/select_profile.sh 16 --install`
   - deploy + auto-start on board:
     - `./scripts/select_profile.sh 4 --install --run`
+  - when USB rebind may drop adb, use serial-safe mode:
+    - `./scripts/select_profile.sh 6 --install --run --run-mode serial-safe`
   - deploy + auto-start + custom usb fps:
     - `./scripts/select_profile.sh 4 --install --run --fps 20`
   - deploy + auto-start + custom size:
@@ -53,6 +55,7 @@
 
 - Run:
   - `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 1 --verbose`
+  - if board has `usbdevice` service that rewrites gadget: `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 1 --verbose --stop-system-usb`
 - Verify logs:
   - `final UDC state` is non-empty
   - `Configured UVC H.264 640x480 ...` appears
@@ -75,6 +78,7 @@
 - Check:
   - rerun board script with explicit fps:
     - `my_uvc_usb_config.sh -w 640 -h 480 -p 25 --verbose`
+    - if gadget is overwritten by system service, append `--stop-system-usb`
   - verify host side format list again:
     - `v4l2-ctl -d /dev/videoX --list-formats-ext`
 - Expected after fix:
@@ -85,7 +89,8 @@
 
 - Example 2-channel setup:
   - Board USB config:
-    - `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 2 --verbose`
+  - `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 2 --verbose`
+  - if needed: `... --stop-system-usb`
   - Board app:
     - `my_uvc --channels 2 -c /userdata/my_uvc.ini`
   - Host:
@@ -96,6 +101,7 @@
 
 - Board USB config:
   - `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 4 --verbose`
+  - if needed: `... --stop-system-usb`
 - Board app:
   - `my_uvc -c /userdata/my_uvc.ini`
 - Host:
@@ -117,6 +123,7 @@
 - Verify:
   - `my_uvc_usb_config.sh` log shows `channels=16`
   - app stats output includes all configured channels
+  - after config, `ls /sys/kernel/config/usb_gadget/rockchip/functions` should include `uvc.gs0...` (not only `ffs.adb`)
 
 - Optional per-channel independent source:
   - set in `my_uvc.ini`:

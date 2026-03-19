@@ -159,6 +159,9 @@ struct uvc_device {
 	struct v4l2_device *vdev;
 	uint8_t cs;
 	uint8_t entity_id;
+	uint8_t control_intf;
+	uint8_t streaming_intf;
+	uint16_t last_setup_wIndex;
 	struct v4l2_buffer ubuf;
 };
 

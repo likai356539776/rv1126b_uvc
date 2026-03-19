@@ -30,6 +30,7 @@
 
 - USB gadget setup:
   - `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 4 --verbose`
+  - if system `usbdevice` service rewrites gadget, append `--stop-system-usb`
 - Start app:
   - `my_uvc -c /userdata/my_uvc.ini --size 640x480`
 

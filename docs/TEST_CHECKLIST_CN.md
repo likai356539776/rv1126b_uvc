@@ -53,6 +53,7 @@
 
 - 执行：
   - `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 1 --verbose`
+  - 若板端存在会覆盖 gadget 的系统服务（如 `usbdevice`）：`my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 1 --verbose --stop-system-usb`
 - 验证日志：
   - `final UDC state` 非空
   - 出现 `Configured UVC H.264 640x480 ...`
@@ -75,6 +76,7 @@
 - 排查：
   - 板端脚本显式指定 fps 后重跑：
     - `my_uvc_usb_config.sh -w 640 -h 480 -p 25 --verbose`
+    - 若仍被系统覆盖，追加 `--stop-system-usb`
   - 主机重新查看支持格式：
     - `v4l2-ctl -d /dev/videoX --list-formats-ext`
 - 期望：
@@ -86,6 +88,7 @@
 - 2 路示例：
   - 板端 USB 配置：
     - `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 2 --verbose`
+    - 必要时追加 `--stop-system-usb`
   - 板端应用：
     - `my_uvc --channels 2 -c /userdata/my_uvc.ini`
   - 主机：
@@ -96,6 +99,7 @@
 
 - 板端 USB 配置：
   - `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 4 --verbose`
+  - 必要时追加 `--stop-system-usb`
 - 板端应用：
   - `my_uvc -c /userdata/my_uvc.ini`
 - 主机：
@@ -117,6 +121,7 @@
 - 验证点：
   - `my_uvc_usb_config.sh` 日志包含 `channels=16`
   - 应用统计日志覆盖所有配置路
+  - 配置后检查 `ls /sys/kernel/config/usb_gadget/rockchip/functions` 应包含 `uvc.gs0...`（不能只有 `ffs.adb`）
 
 - 可选每路独立源：
   - 在 `my_uvc.ini` 中设置：

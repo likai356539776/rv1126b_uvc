@@ -73,6 +73,7 @@ int uvc_video_id_add(int id);
 void uvc_video_id_remove(int id);
 void uvc_video_id_exit_all();
 int uvc_video_id_get(unsigned int seq);
+int uvc_video_id_get_seq(int id);
 
 void uvc_video_set_uvc_process(int id, bool state);
 bool uvc_video_get_uvc_process(int id);

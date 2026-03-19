@@ -124,6 +124,8 @@ v1 模块拆分遵循 `rkipc` 的核心思路：
 - `autobuild.sh --install --config config/profiles/my_uvc_4ch_independent.ini`（按产品配置部署）
 - `scripts/select_profile.sh 4 --install`（按路数快速选择并部署配置）
 - `scripts/select_profile.sh 4 --install --run`（选择配置、部署并自动启动板端流程）
+- `scripts/select_profile.sh 6 --install --run --run-mode serial-safe`（避免 USB 重绑导致 adb 断开）
+- `scripts/select_profile.sh 6 --install --run --run-mode serial-safe`（默认会附带 `--stop-system-usb`，避免系统 USB 服务覆盖 UVC 配置）
 - `scripts/select_profile.sh 4 --install --run --fps 20`（自动启动时指定 USB 配置帧率）
 - `scripts/select_profile.sh 4 --install --run --size 1280x720`（自动启动时指定 USB 分辨率）
 - `scripts/select_profile.sh 16 --install --run --fps 10`（16路配置一键部署与启动）
@@ -141,6 +143,7 @@ v1 模块拆分遵循 `rkipc` 的核心思路：
 
 - 步骤1：执行 USB 配置脚本（建议带详细日志）
   - 示例：`my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 1 --verbose`
+  - 如板端存在系统 USB 服务覆盖（如 `usbdevice`）：`my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 1 --verbose --stop-system-usb`
   - 说明：脚本默认会先执行 UDC 解绑再重绑（解绑失败按非致命处理）
   - 可选：如需跳过解绑可使用 `--no-unbind`
 - 步骤2：启动 `my_uvc`
@@ -185,6 +188,7 @@ v1 模块拆分遵循 `rkipc` 的核心思路：
 | `-n`, `--channels` | `1` | `1..16` | UVC 路数，创建 `uvc.gsN` |
 | `--verbose` | 关闭 | 开关参数 | 打印详细配置过程 |
 | `--no-unbind` | 关闭 | 开关参数 | 跳过 UDC 解绑（默认先解绑再重绑） |
+| `--stop-system-usb` | 关闭 | 开关参数 | 先执行 `/usr/bin/usbdevice stop`，避免系统 USB 服务覆盖手工 UVC 配置 |
 
 #### C) 部署脚本 `my_uvc_install_to_device.sh`
 
@@ -201,8 +205,10 @@ v1 模块拆分遵循 `rkipc` 的核心思路：
 | 位置参数 / `--profile` | 无 | `1` / `2` / `4` / `6` / `8` / `10` / `12` / `16` | 选择产品路数配置模板 |
 | `--install` | 关闭 | 开关参数 | 调用部署脚本下发选中的配置 |
 | `--run` | 关闭 | 开关参数 | 在板端执行 USB 配置并后台启动 `my_uvc` |
+| `--run-mode` | `adb` | `adb` / `serial-safe` | `--run` 执行模式；`serial-safe` 只打印板端命令，不通过 adb 执行 |
 | `--fps` | `25` | `5/10/15/20/25/30` | `--run` 时 USB 配置脚本使用的 fps |
 | `--size` | `640x480` | `WxH`，`W/H>0` | `--run` 时 USB 配置脚本使用的分辨率，并传给 `my_uvc --size` |
+| `--stop-system-usb` | 关闭 | 开关参数 | `--run` 时将该参数透传给 `my_uvc_usb_config.sh`（用于停掉系统 USB 服务） |
 | `--adb-serial` | 空 | 设备序列号 | 指定 adb 目标设备 |
 | `--remote-config` | `/userdata/my_uvc.ini` | 板端路径 | 运行时使用的配置文件路径 |
 
@@ -221,6 +227,7 @@ v1 模块拆分遵循 `rkipc` 的核心思路：
 - 文件码流可播放不代表严格符合所有 UVC 主机端解码兼容性
 - 若主机端对 H.264 Annex-B / 帧边界有要求，需在实现阶段明确分帧策略
 - configfs/UDC 节点路径可能因板端镜像配置不同而有差异，脚本需留可配置项
+- 部分镜像会有系统 USB 管理服务（如 `usbdevice`）自动重配 gadget，可能覆盖多路 UVC；此时需使用 `my_uvc_usb_config.sh --stop-system-usb`
 
 ## 12. 当前实现状态
 
@@ -235,6 +242,7 @@ v1 模块拆分遵循 `rkipc` 的核心思路：
 
 ## 13. 后续规划
 
+- 会话交接快照：`HANDOVER.md`
 - 文档入口索引：`docs/README.md`
 - 详细测试流程见：`docs/TEST_CHECKLIST.md`
 - 中文测试流程见：`docs/TEST_CHECKLIST_CN.md`

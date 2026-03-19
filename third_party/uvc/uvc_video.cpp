@@ -251,6 +251,26 @@ int uvc_video_id_get(unsigned int seq) {
 	return ret;
 }
 
+int uvc_video_id_get_seq(int id) {
+	int seq = -1;
+
+	pthread_mutex_lock(&mtx_v);
+	if (!lst_v.empty()) {
+		int cnt = 0;
+		for (std::list<struct uvc_video *>::iterator i = lst_v.begin(); i != lst_v.end(); ++i) {
+			struct uvc_video *l = *i;
+			if (id == l->id) {
+				seq = cnt;
+				break;
+			}
+			cnt++;
+		}
+	}
+	pthread_mutex_unlock(&mtx_v);
+
+	return seq;
+}
+
 static void uvc_gadget_pthread_exit(int id);
 
 static int uvc_video_id_exit(int id) {

@@ -2660,8 +2660,7 @@ static void uvc_events_process_class(struct uvc_device *dev, struct usb_ctrlrequ
 	if ((ctrl->bRequestType & USB_RECIP_MASK) != USB_RECIP_INTERFACE)
 		return;
 
-	// when add uvc, get_uvc_streaming_intf will return 4, not 1
-	// if ((ctrl->wIndex & 0xff) % 2 != get_uvc_streaming_intf() % 2) {
+	/* 保持兼容路由：先确保主机可稳定枚举多路节点。 */
 	if ((ctrl->wIndex & 0xff) % 2 != 1 % 2) {
 		uvc_events_process_control(dev, ctrl->bRequest, ctrl->wValue >> 8, ctrl->wIndex >> 8,
 		                           ctrl->wLength, resp);
@@ -2673,6 +2672,7 @@ static void uvc_events_process_class(struct uvc_device *dev, struct usb_ctrlrequ
 static void uvc_events_process_setup(struct uvc_device *dev, struct usb_ctrlrequest *ctrl,
                                      struct uvc_request_data *resp) {
 	dev->control = 0;
+	dev->last_setup_wIndex = ctrl->wIndex;
 
 #ifdef ENABLE_USB_REQUEST_DEBUG
 	printf("\nbRequestType %02x bRequest %02x wValue %04x wIndex %04x "
@@ -2913,7 +2913,6 @@ static int uvc_events_process_data(struct uvc_device *dev, struct uvc_request_da
 		dev->width = frame->width;
 		dev->height = frame->height;
 		dev->fps = 10000000 / target->dwFrameInterval;
-
 		/*
 		 * Try to set the default format at the V4L2 video capture
 		 * device as requested by the user.
@@ -3012,11 +3011,15 @@ static void uvc_events_process(struct uvc_device *dev) {
 		return;
 
 	case UVC_EVENT_STREAMON:
+		printf("UVC_EVENT_STREAMON: video_id=%d ctrl_intf=%u stream_intf=%u last_wIndex=0x%04x\n",
+		       dev->video_id, dev->control_intf, dev->streaming_intf, dev->last_setup_wIndex);
 		if (!dev->bulk)
 			uvc_handle_streamon_event(dev);
 		return;
 
 	case UVC_EVENT_STREAMOFF:
+		printf("UVC_EVENT_STREAMOFF: video_id=%d ctrl_intf=%u stream_intf=%u last_wIndex=0x%04x\n",
+		       dev->video_id, dev->control_intf, dev->streaming_intf, dev->last_setup_wIndex);
 		/* Stop V4L2 streaming... */
 		if (!dev->run_standalone && dev->vdev->is_streaming) {
 			/* UVC - V4L2 integrated path. */
@@ -3318,6 +3321,15 @@ int uvc_gadget_main(int id) {
 
 	udev->uvc_devname = uvc_devname;
 	udev->video_id = id;
+	{
+		int seq = uvc_video_id_get_seq(id);
+		if (seq < 0)
+			seq = 0;
+		udev->streaming_intf = (uint8_t)(1 + seq * 2);
+		udev->control_intf = (uint8_t)(udev->streaming_intf - 1);
+		printf("uvc intf mapping: video_id=%d seq=%d control_intf=%u streaming_intf=%u\n", id, seq,
+		       udev->control_intf, udev->streaming_intf);
+	}
 
 	if (!dummy_data_gen_mode && !mjpeg_image) {
 		vdev->v4l2_devname = v4l2_devname;

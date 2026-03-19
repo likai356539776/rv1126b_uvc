@@ -9,9 +9,10 @@ CHANNELS="1"
 GADGET_DIR="/sys/kernel/config/usb_gadget/rockchip"
 VERBOSE=0
 DO_UNBIND=1
+STOP_SYSTEM_USB=0
 
 usage() {
-	echo "Usage: $0 [-w width] [-h height] [-p fps] [-n channels] [--verbose] [--no-unbind]"
+	echo "Usage: $0 [-w width] [-h height] [-p fps] [-n channels] [--verbose] [--no-unbind] [--stop-system-usb]"
 	echo "Example: $0 -w 640 -h 480"
 }
 
@@ -76,6 +77,10 @@ while [ $# -gt 0 ]; do
 		DO_UNBIND=0
 		shift
 		;;
+	--stop-system-usb)
+		STOP_SYSTEM_USB=1
+		shift
+		;;
 	--help|-help|-?)
 		usage
 		exit 0
@@ -93,6 +98,13 @@ if [ "$FORMAT" != "H.264" ]; then
 	exit 1
 fi
 validate_channels "$CHANNELS"
+
+if [ "$STOP_SYSTEM_USB" -eq 1 ]; then
+	if [ -x /usr/bin/usbdevice ]; then
+		logv "stopping system usb manager: /usr/bin/usbdevice stop"
+		/usr/bin/usbdevice stop || true
+	fi
+fi
 
 mkdir -p /sys/kernel/config
 mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config
