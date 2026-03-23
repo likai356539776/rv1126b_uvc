@@ -10,10 +10,14 @@ GADGET_DIR="/sys/kernel/config/usb_gadget/rockchip"
 VERBOSE=0
 DO_UNBIND=1
 STOP_SYSTEM_USB=0
+STREAMING_MAXPACKET=""
+STREAMING_INTERVAL=""
 
 usage() {
-	echo "Usage: $0 [-w width] [-h height] [-p fps] [-n channels] [--verbose] [--no-unbind] [--stop-system-usb]"
+	echo "Usage: $0 [-w width] [-h height] [-p fps] [-n channels] [--verbose] [--no-unbind] [--stop-system-usb] [--streaming-maxpacket n] [--streaming-interval n]"
 	echo "Example: $0 -w 640 -h 480"
+	echo "  --streaming-maxpacket: override per-UVC function streaming_maxpacket"
+	echo "  --streaming-interval: override per-UVC function streaming_interval"
 }
 
 logv() {
@@ -80,6 +84,16 @@ while [ $# -gt 0 ]; do
 	--stop-system-usb)
 		STOP_SYSTEM_USB=1
 		shift
+		;;
+	--streaming-maxpacket)
+		[ $# -ge 2 ] || { usage; exit 1; }
+		STREAMING_MAXPACKET="$2"
+		shift 2
+		;;
+	--streaming-interval)
+		[ $# -ge 2 ] || { usage; exit 1; }
+		STREAMING_INTERVAL="$2"
+		shift 2
 		;;
 	--help|-help|-?)
 		usage
@@ -154,10 +168,15 @@ configure_one_uvc() {
 	mkdir -p "${_func_dir}"
 	echo "${_name}" > "${_func_dir}/device_name"
 	echo "${_name}" > "${_func_dir}/function_name"
-	if [ "$CHANNELS" -gt 1 ]; then
+	if [ -n "$STREAMING_MAXPACKET" ]; then
+		echo "$STREAMING_MAXPACKET" > "${_func_dir}/streaming_maxpacket"
+	elif [ "$CHANNELS" -gt 1 ]; then
 		echo 1024 > "${_func_dir}/streaming_maxpacket"
 	else
 		echo 3072 > "${_func_dir}/streaming_maxpacket"
+	fi
+	if [ -n "$STREAMING_INTERVAL" ]; then
+		echo "$STREAMING_INTERVAL" > "${_func_dir}/streaming_interval"
 	fi
 	echo 2 > "${_func_dir}/uvc_num_request"
 
