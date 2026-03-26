@@ -24,6 +24,14 @@ struct AppConfig {
 	/** "h264" | "mjpeg" — must match my_uvc_usb_config.sh -f (H.264 / MJPEG). */
 	std::string video_codec;
 	std::string h264_path;
+	/** MJPEG only: real-time picture-in-picture (requires libjpeg at link time). */
+	bool pip_enable;
+	std::string pip_overlay_path;
+	int pip_x;
+	int pip_y;
+	int pip_w;
+	int pip_h;
+	int pip_jpeg_quality;
 	std::array<int, kMaxUvcChannels> channel_fps;
 	std::array<std::string, kMaxUvcChannels> channel_h264_path;
 };

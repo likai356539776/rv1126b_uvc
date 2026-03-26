@@ -68,6 +68,13 @@ AppConfig default_app_config() {
 	cfg.stats_interval_sec = 5;
 	cfg.video_codec = "h264";
 	cfg.h264_path = "/userdata/200frames_count.h264";
+	cfg.pip_enable = false;
+	cfg.pip_overlay_path.clear();
+	cfg.pip_x = 20;
+	cfg.pip_y = 20;
+	cfg.pip_w = 160;
+	cfg.pip_h = 120;
+	cfg.pip_jpeg_quality = 85;
 	for (int i = 0; i < kMaxUvcChannels; i++) {
 		cfg.channel_fps[i] = cfg.fps;
 		cfg.channel_h264_path[i] = cfg.h264_path;
@@ -243,6 +250,61 @@ bool load_app_config(const std::string &path, AppConfig *cfg, std::string *err) 
 					*err = "invalid video_codec at line " + std::to_string(lineno);
 				return false;
 			}
+		} else if (key == "pip_enable") {
+			bool v = false;
+			if (!to_bool(val, &v)) {
+				if (err)
+					*err = "invalid pip_enable at line " + std::to_string(lineno);
+				return false;
+			}
+			cfg->pip_enable = v;
+		} else if (key == "pip_overlay_path") {
+			if (val.empty()) {
+				if (err)
+					*err = "empty pip_overlay_path at line " + std::to_string(lineno);
+				return false;
+			}
+			cfg->pip_overlay_path = val;
+		} else if (key == "pip_x") {
+			int v = 0;
+			if (!to_int(val, &v)) {
+				if (err)
+					*err = "invalid pip_x at line " + std::to_string(lineno);
+				return false;
+			}
+			cfg->pip_x = v;
+		} else if (key == "pip_y") {
+			int v = 0;
+			if (!to_int(val, &v)) {
+				if (err)
+					*err = "invalid pip_y at line " + std::to_string(lineno);
+				return false;
+			}
+			cfg->pip_y = v;
+		} else if (key == "pip_w") {
+			int v = 0;
+			if (!to_int(val, &v) || v <= 0) {
+				if (err)
+					*err = "invalid pip_w at line " + std::to_string(lineno);
+				return false;
+			}
+			cfg->pip_w = v;
+		} else if (key == "pip_h") {
+			int v = 0;
+			if (!to_int(val, &v) || v <= 0) {
+				if (err)
+					*err = "invalid pip_h at line " + std::to_string(lineno);
+				return false;
+			}
+			cfg->pip_h = v;
+		} else if (key == "pip_jpeg_quality" || key == "pip_quality") {
+			int v = 0;
+			if (!to_int(val, &v) || v < 1 || v > 100) {
+				if (err)
+					*err = "invalid pip_jpeg_quality at line " + std::to_string(lineno);
+				return false;
+			}
+			cfg->pip_jpeg_quality = v;
 		} else if (key == "h264_path") {
 			if (val.empty()) {
 				if (err)
