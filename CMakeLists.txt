@@ -18,6 +18,14 @@ endif()
 
 find_package(JPEG REQUIRED)
 
+# Buildroot images may ship both libjpeg v6b (SONAME .62) and libjpeg-turbo v8 (SONAME .8).
+# Our headers (JPEG_LIB_VERSION=80 in sysroot/usr/include/jconfig.h) must match the runtime library.
+# Force linking against libjpeg.so.8 when available in sysroot.
+set(MY_UVC_JPEG_LIB "")
+if(DEFINED CMAKE_SYSROOT AND EXISTS "${CMAKE_SYSROOT}/usr/lib/libjpeg.so.8")
+	set(MY_UVC_JPEG_LIB "${CMAKE_SYSROOT}/usr/lib/libjpeg.so.8")
+endif()
+
 add_executable(my_uvc
 	src/main.cpp
 	src/app_config.cpp
@@ -41,7 +49,11 @@ target_compile_options(my_uvc PRIVATE
 	-Wno-unused-parameter
 )
 
-target_link_libraries(my_uvc PRIVATE pthread JPEG::JPEG)
+if(MY_UVC_JPEG_LIB)
+	target_link_libraries(my_uvc PRIVATE pthread "${MY_UVC_JPEG_LIB}")
+else()
+	target_link_libraries(my_uvc PRIVATE pthread JPEG::JPEG)
+endif()
 
 install(TARGETS my_uvc RUNTIME DESTINATION bin)
 install(PROGRAMS scripts/my_uvc_usb_config.sh DESTINATION bin)
