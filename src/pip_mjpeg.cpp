@@ -64,6 +64,9 @@ bool pip_mjpeg_decode_jpeg_file_rgb(const char *path, std::vector<uint8_t> *rgb,
 	g_last_msg[0] = '\0';
 
 	if (setjmp(jerr.jb)) {
+		// error_exit already formatted message into jerr.msg
+		if (jerr.msg[0])
+			std::snprintf(g_last_msg, sizeof(g_last_msg), "%s", jerr.msg);
 		jpeg_destroy_decompress(&cinfo);
 		std::fclose(fp);
 		g_last_err = nullptr;
@@ -75,6 +78,7 @@ bool pip_mjpeg_decode_jpeg_file_rgb(const char *path, std::vector<uint8_t> *rgb,
 	const int hdr = jpeg_read_header(&cinfo, TRUE);
 	if (hdr != JPEG_HEADER_OK) {
 		std::snprintf(jerr.msg, sizeof(jerr.msg), "jpeg_read_header=%d", hdr);
+		std::snprintf(g_last_msg, sizeof(g_last_msg), "%s", jerr.msg);
 		jpeg_destroy_decompress(&cinfo);
 		std::fclose(fp);
 		g_last_err = nullptr;
@@ -104,6 +108,7 @@ bool pip_mjpeg_decode_jpeg_file_rgb(const char *path, std::vector<uint8_t> *rgb,
 	*out_w = w;
 	*out_h = h;
 	g_last_err = nullptr;
+	g_last_msg[0] = '\0';
 	return true;
 }
 
@@ -121,6 +126,8 @@ bool pip_mjpeg_decode_jpeg_rgb(const uint8_t *jpeg_data, size_t jpeg_len, std::v
 	g_last_msg[0] = '\0';
 
 	if (setjmp(jerr.jb)) {
+		if (jerr.msg[0])
+			std::snprintf(g_last_msg, sizeof(g_last_msg), "%s", jerr.msg);
 		jpeg_destroy_decompress(&cinfo);
 		g_last_err = nullptr;
 		return false;
@@ -131,6 +138,7 @@ bool pip_mjpeg_decode_jpeg_rgb(const uint8_t *jpeg_data, size_t jpeg_len, std::v
 	const int hdr = jpeg_read_header(&cinfo, TRUE);
 	if (hdr != JPEG_HEADER_OK) {
 		std::snprintf(jerr.msg, sizeof(jerr.msg), "jpeg_read_header=%d", hdr);
+		std::snprintf(g_last_msg, sizeof(g_last_msg), "%s", jerr.msg);
 		jpeg_destroy_decompress(&cinfo);
 		g_last_err = nullptr;
 		return false;
@@ -158,6 +166,7 @@ bool pip_mjpeg_decode_jpeg_rgb(const uint8_t *jpeg_data, size_t jpeg_len, std::v
 	*out_w = w;
 	*out_h = h;
 	g_last_err = nullptr;
+	g_last_msg[0] = '\0';
 	return true;
 }
 

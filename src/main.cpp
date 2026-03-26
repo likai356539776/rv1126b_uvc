@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <utility>
@@ -28,6 +29,7 @@ extern "C" {
 namespace {
 std::atomic<bool> g_run(true);
 std::atomic<int> g_log_level(1);
+std::mutex g_log_mu;
 
 enum LogLevel {
 	LOG_ERROR = 0,
@@ -38,6 +40,7 @@ enum LogLevel {
 void log_msg(int level, const char *fmt, ...) {
 	if (level > g_log_level.load())
 		return;
+	std::lock_guard<std::mutex> lk(g_log_mu);
 	const char *tag = (level == LOG_ERROR) ? "E" : (level == LOG_DEBUG) ? "D" : "I";
 	std::fprintf(stderr, "[my_uvc][%s] ", tag);
 	va_list ap;
