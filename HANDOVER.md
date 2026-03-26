@@ -103,6 +103,7 @@
 - `--fps`（USB 协商帧率）与 `my_uvc.ini` 的每路 `channelN_fps` 需要协同配置，避免“协商值与推流节拍不一致”。
 - 若复开流出现 `non-existing PPS`，优先上调 `startup_prime_frames`（建议按 +2 递增）。
 - Buildroot 注意：若板端同时存在 `libjpeg.so.62` 与 `libjpeg.so.8`，PiP 需要链接 `libjpeg.so.8`，否则会报 `Wrong JPEG library version`。
+- USB 拔插注意：若板端存在系统 USB 管理服务（如 `usbdevice` / adbd 组合），拔线时可能出现 `usb_function_activate` 相关 WARN；UVC 调试阶段建议使用 `my_uvc_usb_config.sh ... --stop-system-usb`。
 - **多路 6/7/8 在 PC 上无数据**：板端与 `f_uvc`/应用侧已验证 8 路均在推流；问题集中在 **Host USB2（480M）+ 多路等时 UVC 的资源分配/驱动行为**。DTS 是否仅 HS、能否改 USB3 需单独确认；勿再堆叠用户态“通道映射”实验代码。
 
 ## 7. 新会话快速恢复模板（复制可用）

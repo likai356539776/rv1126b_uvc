@@ -59,6 +59,7 @@
   - MJPEG:
     - `my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 1 --verbose`
   - if board has `usbdevice` service that rewrites gadget: `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 1 --verbose --stop-system-usb`
+  - for cable plug/unplug stress tests, keep `--stop-system-usb` enabled to avoid gadget activate race warnings.
 - Verify logs:
   - `final UDC state` is non-empty
   - `Configured UVC ... 640x480 ...` appears

@@ -57,6 +57,7 @@
   - MJPEG：
     - `my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 1 --verbose`
   - 若板端存在会覆盖 gadget 的系统服务（如 `usbdevice`）：`my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 1 --verbose --stop-system-usb`
+  - 做 USB 拔插压测时建议始终带 `--stop-system-usb`，可避免 gadget 激活竞态告警。
 - 验证日志：
   - `final UDC state` 非空
   - 出现 `Configured UVC ... 640x480 ...`
