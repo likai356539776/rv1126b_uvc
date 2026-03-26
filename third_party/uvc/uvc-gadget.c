@@ -365,12 +365,15 @@ int uvc_formats_init(const char *output_data_type, int width, int height) {
 		frames[0].intervals[5] = 2000000;
 		frames[0].intervals[6] = 0;
 	} else if (strcmp(output_data_type, "MJPEG") == 0) {
+		/* Match gadget dwFrameInterval set (rkipc MJPEG + 20/25fps lines). */
 		uvc_formats[0].fcc = V4L2_PIX_FMT_MJPEG;
 		frames[0].intervals[0] = 333333;
-		frames[0].intervals[1] = 666666;
-		frames[0].intervals[2] = 1000000;
-		frames[0].intervals[3] = 2000000;
-		frames[0].intervals[4] = 0;
+		frames[0].intervals[1] = 400000;
+		frames[0].intervals[2] = 500000;
+		frames[0].intervals[3] = 666666;
+		frames[0].intervals[4] = 1000000;
+		frames[0].intervals[5] = 2000000;
+		frames[0].intervals[6] = 0;
 	} else if (strcmp(output_data_type, "NV12") == 0) {
 		uvc_formats[0].fcc = V4L2_PIX_FMT_NV12;
 		frames[0].intervals[0] = 333333;

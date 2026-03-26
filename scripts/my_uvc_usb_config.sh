@@ -14,8 +14,9 @@ STREAMING_MAXPACKET=""
 STREAMING_INTERVAL=""
 
 usage() {
-	echo "Usage: $0 [-w width] [-h height] [-p fps] [-n channels] [--verbose] [--no-unbind] [--stop-system-usb] [--streaming-maxpacket n] [--streaming-interval n]"
-	echo "Example: $0 -w 640 -h 480"
+	echo "Usage: $0 [-f H.264|MJPEG] [-w width] [-h height] [-p fps] [-n channels] [--verbose] [--no-unbind] [--stop-system-usb] [--streaming-maxpacket n] [--streaming-interval n]"
+	echo "Example: $0 -f H.264 -w 640 -h 480"
+	echo "  -f: UVC payload format (same layout as rkipc rkipc_usb_config.sh)"
 	echo "  --streaming-maxpacket: override per-UVC function streaming_maxpacket"
 	echo "  --streaming-interval: override per-UVC function streaming_interval"
 }
@@ -53,6 +54,11 @@ validate_channels() {
 
 while [ $# -gt 0 ]; do
 	case "$1" in
+	-f)
+		[ $# -ge 2 ] || { usage; exit 1; }
+		FORMAT="$2"
+		shift 2
+		;;
 	-w)
 		[ $# -ge 2 ] || { usage; exit 1; }
 		WIDTH="$2"
@@ -107,10 +113,13 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
-if [ "$FORMAT" != "H.264" ]; then
-	echo "Only H.264 is supported in v1"
+case "$FORMAT" in
+H.264|MJPEG) ;;
+*)
+	echo "Unsupported -f FORMAT: ${FORMAT} (use H.264 or MJPEG, same as rkipc_usb_config.sh)"
 	exit 1
-fi
+	;;
+esac
 validate_channels "$CHANNELS"
 
 if [ "$STOP_SYSTEM_USB" -eq 1 ]; then
@@ -163,7 +172,6 @@ configure_one_uvc() {
 	_func="uvc.gs${_idx}"
 	_name="my_uvc_${_idx}"
 	_func_dir="$GADGET_DIR/functions/${_func}"
-	_res_dir="${_func_dir}/streaming/framebased/f1/${WIDTH}_${HEIGHT}p"
 
 	mkdir -p "${_func_dir}"
 	echo "${_name}" > "${_func_dir}/device_name"
@@ -185,17 +193,34 @@ configure_one_uvc() {
 	ln -sf "${_func_dir}/control/header/h" "${_func_dir}/control/class/ss/h"
 
 	mkdir -p "${_func_dir}/streaming/header/h"
-	mkdir -p "${_func_dir}/streaming/framebased/f1"
-	mkdir -p "${_res_dir}"
-	echo "$WIDTH" > "${_res_dir}/wWidth"
-	echo "$HEIGHT" > "${_res_dir}/wHeight"
-	echo "$DEFAULT_INTERVAL" > "${_res_dir}/dwDefaultFrameInterval"
-	echo $((WIDTH * HEIGHT * 10)) > "${_res_dir}/dwMinBitRate"
-	echo $((WIDTH * HEIGHT * 10)) > "${_res_dir}/dwMaxBitRate"
-	echo "$DEFAULT_INTERVAL" > "${_res_dir}/dwFrameInterval"
-	echo -ne '\x48\x32\x36\x34\x00\x00\x10\x00\x80\x00\x00\xaa\x00\x38\x9b\x71' > \
-		"${_func_dir}/streaming/framebased/f1/guidFormat"
-	ln -sf "${_func_dir}/streaming/framebased/f1" "${_func_dir}/streaming/header/h/f1"
+	if [ "$FORMAT" = "MJPEG" ]; then
+		# Rockchip rkipc_usb_config.sh: streaming/mjpeg/m/<WxH>p
+		_res_dir="${_func_dir}/streaming/mjpeg/m/${WIDTH}_${HEIGHT}p"
+		mkdir -p "${_func_dir}/streaming/mjpeg/m"
+		mkdir -p "${_res_dir}"
+		echo "$WIDTH" > "${_res_dir}/wWidth"
+		echo "$HEIGHT" > "${_res_dir}/wHeight"
+		echo "$DEFAULT_INTERVAL" > "${_res_dir}/dwDefaultFrameInterval"
+		echo $((WIDTH * HEIGHT * 20)) > "${_res_dir}/dwMinBitRate"
+		echo $((WIDTH * HEIGHT * 20)) > "${_res_dir}/dwMaxBitRate"
+		echo $((WIDTH * HEIGHT * 2)) > "${_res_dir}/dwMaxVideoFrameBufferSize"
+		# Same fps grid as H.264 path below (30..5fps)
+		printf '%s\n' 333333 400000 500000 666666 1000000 2000000 > "${_res_dir}/dwFrameInterval"
+		ln -sf "${_func_dir}/streaming/mjpeg/m" "${_func_dir}/streaming/header/h/m"
+	else
+		_res_dir="${_func_dir}/streaming/framebased/f1/${WIDTH}_${HEIGHT}p"
+		mkdir -p "${_func_dir}/streaming/framebased/f1"
+		mkdir -p "${_res_dir}"
+		echo "$WIDTH" > "${_res_dir}/wWidth"
+		echo "$HEIGHT" > "${_res_dir}/wHeight"
+		echo "$DEFAULT_INTERVAL" > "${_res_dir}/dwDefaultFrameInterval"
+		echo $((WIDTH * HEIGHT * 10)) > "${_res_dir}/dwMinBitRate"
+		echo $((WIDTH * HEIGHT * 10)) > "${_res_dir}/dwMaxBitRate"
+		printf '%s\n' 333333 400000 500000 666666 1000000 2000000 > "${_res_dir}/dwFrameInterval"
+		echo -ne '\x48\x32\x36\x34\x00\x00\x10\x00\x80\x00\x00\xaa\x00\x38\x9b\x71' > \
+			"${_func_dir}/streaming/framebased/f1/guidFormat"
+		ln -sf "${_func_dir}/streaming/framebased/f1" "${_func_dir}/streaming/header/h/f1"
+	fi
 	ln -sf "${_func_dir}/streaming/header/h" "${_func_dir}/streaming/class/fs/h"
 	ln -sf "${_func_dir}/streaming/header/h" "${_func_dir}/streaming/class/hs/h"
 	ln -sf "${_func_dir}/streaming/header/h" "${_func_dir}/streaming/class/ss/h"
@@ -219,4 +244,4 @@ echo "$UDC" > "$GADGET_DIR/UDC"
 FINAL_UDC="$(cat "$GADGET_DIR/UDC" 2>/dev/null || true)"
 logv "final UDC state: '${FINAL_UDC}'"
 
-echo "Configured UVC H.264 ${WIDTH}x${HEIGHT}@${FPS}fps channels=${CHANNELS} on UDC=${UDC}"
+echo "Configured UVC ${FORMAT} ${WIDTH}x${HEIGHT}@${FPS}fps channels=${CHANNELS} on UDC=${UDC}"

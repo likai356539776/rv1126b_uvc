@@ -1,6 +1,7 @@
 #include "app_config.h"
 
 #include <atomic>
+#include <algorithm>
 #include <chrono>
 #include <csignal>
 #include <cstdarg>
@@ -8,11 +9,13 @@
 #include <cstdlib>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 extern "C" {
@@ -46,6 +49,71 @@ void log_msg(int level, const char *fmt, ...) {
 void on_signal(int signo) {
 	(void)signo;
 	g_run.store(false);
+}
+
+bool read_file_all(const std::string &path, std::vector<uint8_t> *out);
+
+std::vector<std::pair<size_t, size_t>> split_jpeg_by_soi(const std::vector<uint8_t> &buf) {
+	std::vector<std::pair<size_t, size_t>> out;
+	std::vector<size_t> starts;
+	for (size_t i = 0; i + 1 < buf.size(); ++i) {
+		if (buf[i] == 0xFF && buf[i + 1] == 0xD8)
+			starts.push_back(i);
+	}
+	for (size_t k = 0; k < starts.size(); ++k) {
+		size_t off = starts[k];
+		size_t end = (k + 1 < starts.size()) ? starts[k + 1] : buf.size();
+		if (end > off)
+			out.emplace_back(off, end - off);
+	}
+	return out;
+}
+
+bool is_dir_path(const std::string &path) {
+	std::error_code ec;
+	return std::filesystem::is_directory(std::filesystem::path(path), ec) && !ec;
+}
+
+std::string to_lower_ascii(std::string s) {
+	for (auto &c : s)
+		c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+	return s;
+}
+
+bool load_mjpeg_frames_from_dir(const std::string &dir, std::vector<std::vector<uint8_t>> *frames) {
+	if (!frames)
+		return false;
+	frames->clear();
+
+	std::error_code ec;
+	std::vector<std::filesystem::path> files;
+	for (const auto &ent : std::filesystem::directory_iterator(std::filesystem::path(dir), ec)) {
+		if (ec)
+			break;
+		if (!ent.is_regular_file())
+			continue;
+		auto ext = to_lower_ascii(ent.path().extension().string());
+		if (ext == ".jpg" || ext == ".jpeg")
+			files.push_back(ent.path());
+	}
+	if (ec)
+		return false;
+
+	std::sort(files.begin(), files.end(),
+	          [](const std::filesystem::path &a, const std::filesystem::path &b) {
+		          return a.filename().string() < b.filename().string();
+	          });
+
+	frames->reserve(files.size());
+	for (const auto &p : files) {
+		std::vector<uint8_t> img;
+		if (!read_file_all(p.string(), &img))
+			return false;
+		if (img.size() < 2 || img[0] != 0xFF || img[1] != 0xD8)
+			return false; // must start with JPEG SOI
+		frames->push_back(std::move(img));
+	}
+	return !frames->empty();
 }
 
 bool read_file_all(const std::string &path, std::vector<uint8_t> *out) {
@@ -93,8 +161,13 @@ struct StreamChannelContext {
 	int startup_prime_frames;
 	int log_every_frames;
 	int idle_sleep_ms;
+	bool mjpeg_mode;
 	std::string h264_path;
 	std::vector<uint8_t> bitstream;
+	/** MJPEG: SOI-split segments (offset, length) into bitstream. */
+	std::vector<std::pair<size_t, size_t>> mjpeg_ranges;
+	/** MJPEG: directory mode, one JPEG file per frame. */
+	std::vector<std::vector<uint8_t>> mjpeg_frames;
 	std::vector<NalRange> nals;
 	std::vector<FrameRange> frames;
 	size_t sps_idx;
@@ -191,6 +264,28 @@ void append_nal(std::vector<uint8_t> *out, const std::vector<uint8_t> &bitstream
 }
 
 bool load_channel_stream(StreamChannelContext *ch) {
+	if (ch->mjpeg_mode) {
+		ch->sps_idx = static_cast<size_t>(-1);
+		ch->pps_idx = static_cast<size_t>(-1);
+		ch->first_idr_frame_idx = 0;
+		ch->nals.clear();
+		ch->frames.clear();
+		ch->mjpeg_ranges.clear();
+		ch->mjpeg_frames.clear();
+
+		if (is_dir_path(ch->h264_path)) {
+			ch->bitstream.clear();
+			return load_mjpeg_frames_from_dir(ch->h264_path, &ch->mjpeg_frames);
+		}
+
+		if (!read_file_all(ch->h264_path, &ch->bitstream))
+			return false;
+		ch->mjpeg_ranges = split_jpeg_by_soi(ch->bitstream);
+		return !ch->mjpeg_ranges.empty();
+	}
+
+	ch->mjpeg_ranges.clear();
+	ch->mjpeg_frames.clear();
 	ch->sps_idx = static_cast<size_t>(-1);
 	ch->pps_idx = static_cast<size_t>(-1);
 	ch->first_idr_frame_idx = static_cast<size_t>(-1);
@@ -221,12 +316,14 @@ bool load_channel_stream(StreamChannelContext *ch) {
 
 void channel_worker(StreamChannelContext ch) {
 	std::vector<uint8_t> frame_buf;
-	size_t frame_idx = ch.first_idr_frame_idx;
+	size_t frame_idx = ch.mjpeg_mode ? 0 : ch.first_idr_frame_idx;
 	size_t sent_frames = 0;
 	bool stream_was_on = false;
 	int startup_prime_left = 0;
 	const auto frame_interval = std::chrono::microseconds(1000000 / ch.fps);
 	auto last_tick = std::chrono::steady_clock::now();
+	const size_t nframes = ch.mjpeg_mode ? (!ch.mjpeg_frames.empty() ? ch.mjpeg_frames.size() : ch.mjpeg_ranges.size())
+	                                     : ch.frames.size();
 
 	while (g_run.load()) {
 		// Per-channel stream gate: true only after this channel gets COMMIT/STREAMON.
@@ -247,7 +344,7 @@ void channel_worker(StreamChannelContext ch) {
 				log_msg(LOG_DEBUG, "channel %d stream ON (video_id=%d)", ch.channel_id, ch.video_id);
 			}
 			if (ch.sync_to_idr_on_open)
-				frame_idx = ch.first_idr_frame_idx;
+				frame_idx = ch.mjpeg_mode ? 0 : ch.first_idr_frame_idx;
 			startup_prime_left = ch.startup_prime_frames;
 			last_tick = std::chrono::steady_clock::now();
 			stream_was_on = true;
@@ -255,25 +352,41 @@ void channel_worker(StreamChannelContext ch) {
 
 		size_t send_frame_idx = frame_idx;
 		if (startup_prime_left > 0)
-			send_frame_idx = ch.first_idr_frame_idx;
-		const FrameRange &f = ch.frames[send_frame_idx];
-		frame_buf.clear();
-		if (ch.inject_sps_pps_on_idr && f.idr && ch.sps_idx != static_cast<size_t>(-1) &&
-		    ch.pps_idx != static_cast<size_t>(-1)) {
-			append_nal(&frame_buf, ch.bitstream, ch.nals[ch.sps_idx]);
-			append_nal(&frame_buf, ch.bitstream, ch.nals[ch.pps_idx]);
-		}
-		for (size_t i = f.begin_nal; i < f.end_nal; i++)
-			append_nal(&frame_buf, ch.bitstream, ch.nals[i]);
+			send_frame_idx = ch.mjpeg_mode ? 0 : ch.first_idr_frame_idx;
 
-		if (!frame_buf.empty()) {
-			void *ptr = const_cast<uint8_t *>(frame_buf.data());
-			uvc_read_camera_buffer_by_id(ptr, -1, frame_buf.size(), nullptr, 0, ch.video_id);
+		if (ch.mjpeg_mode) {
+			if (!ch.mjpeg_frames.empty()) {
+				auto &img = ch.mjpeg_frames[send_frame_idx];
+				void *ptr = img.data();
+				uvc_read_camera_buffer_by_id(ptr, -1, img.size(), nullptr, 0, ch.video_id);
+			} else {
+				const auto &seg = ch.mjpeg_ranges[send_frame_idx];
+				void *ptr = ch.bitstream.data() + seg.first;
+				uvc_read_camera_buffer_by_id(ptr, -1, seg.second, nullptr, 0, ch.video_id);
+			}
 			sent_frames++;
 			if (ch.stats)
 				ch.stats->total_frames.fetch_add(1);
-		} else if (ch.stats) {
-			ch.stats->error_count.fetch_add(1);
+		} else {
+			const FrameRange &f = ch.frames[send_frame_idx];
+			frame_buf.clear();
+			if (ch.inject_sps_pps_on_idr && f.idr && ch.sps_idx != static_cast<size_t>(-1) &&
+			    ch.pps_idx != static_cast<size_t>(-1)) {
+				append_nal(&frame_buf, ch.bitstream, ch.nals[ch.sps_idx]);
+				append_nal(&frame_buf, ch.bitstream, ch.nals[ch.pps_idx]);
+			}
+			for (size_t i = f.begin_nal; i < f.end_nal; i++)
+				append_nal(&frame_buf, ch.bitstream, ch.nals[i]);
+
+			if (!frame_buf.empty()) {
+				void *ptr = const_cast<uint8_t *>(frame_buf.data());
+				uvc_read_camera_buffer_by_id(ptr, -1, frame_buf.size(), nullptr, 0, ch.video_id);
+				sent_frames++;
+				if (ch.stats)
+					ch.stats->total_frames.fetch_add(1);
+			} else if (ch.stats) {
+				ch.stats->error_count.fetch_add(1);
+			}
 		}
 
 		auto now = std::chrono::steady_clock::now();
@@ -285,8 +398,8 @@ void channel_worker(StreamChannelContext ch) {
 		if (startup_prime_left > 0) {
 			startup_prime_left--;
 			if (startup_prime_left == 0) {
-				frame_idx = ch.first_idr_frame_idx + 1;
-				if (frame_idx >= ch.frames.size()) {
+				frame_idx = ch.mjpeg_mode ? 1 : (ch.first_idr_frame_idx + 1);
+				if (frame_idx >= nframes) {
 					if (ch.loop_file)
 						frame_idx = 0;
 					else
@@ -298,7 +411,7 @@ void channel_worker(StreamChannelContext ch) {
 			}
 		} else {
 			frame_idx++;
-			if (frame_idx >= ch.frames.size()) {
+			if (frame_idx >= nframes) {
 				if (ch.loop_file)
 					frame_idx = 0;
 				else
@@ -347,7 +460,8 @@ void close_uvc_cb(void) {
 
 void print_usage(const char *argv0) {
 	std::fprintf(stderr,
-	             "Usage: %s [-c config] [--channels n] [--file path] [--width w] [--height h] [--fps fps] "
+	             "Usage: %s [-c config] [--codec h264|mjpeg] [--channels n] [--file path|dir] [--width w] "
+	             "[--height h] [--fps fps] "
 	             "[--size WxH] "
 	             "[--log-every n] [--log-level 0|1|2] [--stats-enable 0|1] "
 	             "[--stats-interval sec] [--startup-prime-frames n]\n",
@@ -372,11 +486,25 @@ int main(int argc, char **argv) {
 	bool cli_stats_enable = false;
 	bool cli_stats_interval = false;
 	bool cli_startup_prime_frames = false;
+	bool cli_codec = false;
 
 	for (int i = 1; i < argc; i++) {
 		std::string a = argv[i];
 		if (a == "-c" && i + 1 < argc) {
 			config_path = argv[++i];
+		} else if (a == "--codec" && i + 1 < argc) {
+			std::string c = argv[++i];
+			for (auto &x : c)
+				x = static_cast<char>(std::tolower(static_cast<unsigned char>(x)));
+			if (c == "h264" || c == "264" || c == "avc")
+				cli_cfg.video_codec = "h264";
+			else if (c == "mjpeg" || c == "jpeg" || c == "jpg" || c == "mjpg")
+				cli_cfg.video_codec = "mjpeg";
+			else {
+				std::fprintf(stderr, "[my_uvc] invalid --codec (use h264 or mjpeg)\n");
+				return 1;
+			}
+			cli_codec = true;
 		} else if (a == "--channels" && i + 1 < argc) {
 			cli_cfg.channels = std::stoi(argv[++i]);
 			cli_channels = true;
@@ -432,8 +560,12 @@ int main(int argc, char **argv) {
 	if (!load_app_config(config_path, &cfg, &err))
 		std::fprintf(stderr, "[my_uvc] warning: %s, fallback to defaults\n", err.c_str());
 
-	if (cli_file)
+	if (cli_file) {
 		cfg.h264_path = cli_cfg.h264_path;
+		/* Ini channelN_h264_path overrides global; CLI --file must win for all channels. */
+		for (int i = 0; i < kMaxUvcChannels; i++)
+			cfg.channel_h264_path[i] = cfg.h264_path;
+	}
 	if (cli_channels)
 		cfg.channels = cli_cfg.channels;
 	if (cli_width)
@@ -456,6 +588,12 @@ int main(int argc, char **argv) {
 		cfg.stats_interval_sec = cli_cfg.stats_interval_sec;
 	if (cli_startup_prime_frames)
 		cfg.startup_prime_frames = cli_cfg.startup_prime_frames;
+	if (cli_codec)
+		cfg.video_codec = cli_cfg.video_codec;
+	if (cfg.video_codec != "h264" && cfg.video_codec != "mjpeg") {
+		std::fprintf(stderr, "[my_uvc] invalid video_codec in config (use h264 or mjpeg)\n");
+		return 1;
+	}
 	if (cfg.channels < 1)
 		cfg.channels = 1;
 	if (cfg.channels > kMaxUvcChannels)
@@ -474,11 +612,11 @@ int main(int argc, char **argv) {
 	g_log_level.store(cfg.log_level);
 
 	log_msg(LOG_INFO,
-	        "config: file=%s channels=%d width=%d height=%d fps=%d loop=%d prefer_host_fps=%d "
+	        "config: codec=%s file=%s channels=%d width=%d height=%d fps=%d loop=%d prefer_host_fps=%d "
 	        "sync_to_idr_on_open=%d inject_sps_pps_on_idr=%d log_every_frames=%d idle_sleep_ms=%d "
 	        "startup_prime_frames=%d log_level=%d stats_enable=%d stats_interval_sec=%d",
-	        cfg.h264_path.c_str(), cfg.channels, cfg.width, cfg.height, cfg.fps, cfg.loop_file ? 1 : 0,
-	        cfg.prefer_host_fps ? 1 : 0, cfg.sync_to_idr_on_open ? 1 : 0,
+	        cfg.video_codec.c_str(), cfg.h264_path.c_str(), cfg.channels, cfg.width, cfg.height, cfg.fps,
+	        cfg.loop_file ? 1 : 0, cfg.prefer_host_fps ? 1 : 0, cfg.sync_to_idr_on_open ? 1 : 0,
 	        cfg.inject_sps_pps_on_idr ? 1 : 0, cfg.log_every_frames, cfg.idle_sleep_ms,
 	        cfg.startup_prime_frames, cfg.log_level, cfg.stats_enable ? 1 : 0, cfg.stats_interval_sec);
 
@@ -488,7 +626,7 @@ int main(int argc, char **argv) {
 		std::snprintf(buf, sizeof(buf), "%d", cfg.channels);
 		setenv("UVC_CNT", buf, 1);
 	}
-	uvc_formats_init("H.264", cfg.width, cfg.height);
+	uvc_formats_init(cfg.video_codec == "mjpeg" ? "MJPEG" : "H.264", cfg.width, cfg.height);
 	register_uvc_open_camera(open_uvc_cb);
 	register_uvc_close_camera(close_uvc_cb);
 
@@ -515,6 +653,7 @@ int main(int argc, char **argv) {
 		ch.startup_prime_frames = cfg.startup_prime_frames;
 		ch.log_every_frames = cfg.log_every_frames;
 		ch.idle_sleep_ms = cfg.idle_sleep_ms;
+		ch.mjpeg_mode = (cfg.video_codec == "mjpeg");
 		ch.h264_path = cfg.channel_h264_path[i].empty() ? cfg.h264_path : cfg.channel_h264_path[i];
 		auto stats = std::make_shared<ChannelStats>();
 		stats->channel_id = i;

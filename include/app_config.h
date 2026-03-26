@@ -21,6 +21,8 @@ struct AppConfig {
 	int log_level;
 	bool stats_enable;
 	int stats_interval_sec;
+	/** "h264" | "mjpeg" — must match my_uvc_usb_config.sh -f (H.264 / MJPEG). */
+	std::string video_codec;
 	std::string h264_path;
 	std::array<int, kMaxUvcChannels> channel_fps;
 	std::array<std::string, kMaxUvcChannels> channel_h264_path;

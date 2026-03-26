@@ -66,6 +66,7 @@ AppConfig default_app_config() {
 	cfg.log_level = 1;
 	cfg.stats_enable = true;
 	cfg.stats_interval_sec = 5;
+	cfg.video_codec = "h264";
 	cfg.h264_path = "/userdata/200frames_count.h264";
 	for (int i = 0; i < kMaxUvcChannels; i++) {
 		cfg.channel_fps[i] = cfg.fps;
@@ -231,6 +232,17 @@ bool load_app_config(const std::string &path, AppConfig *cfg, std::string *err) 
 				return false;
 			}
 			cfg->stats_interval_sec = v;
+		} else if (key == "video_codec" || key == "codec") {
+			std::string v = to_lower(trim(val));
+			if (v == "h264" || v == "264" || v == "avc") {
+				cfg->video_codec = "h264";
+			} else if (v == "mjpeg" || v == "jpeg" || v == "jpg" || v == "mjpg") {
+				cfg->video_codec = "mjpeg";
+			} else {
+				if (err)
+					*err = "invalid video_codec at line " + std::to_string(lineno);
+				return false;
+			}
 		} else if (key == "h264_path") {
 			if (val.empty()) {
 				if (err)
