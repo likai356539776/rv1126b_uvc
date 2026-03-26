@@ -54,22 +54,38 @@
 ## 3) USB Gadget Check (Board)
 
 - Run:
-  - `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 1 --verbose`
+  - H.264:
+    - `my_uvc_usb_config.sh -f H.264 -w 640 -h 480 -p 25 -n 1 --verbose`
+  - MJPEG:
+    - `my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 1 --verbose`
   - if board has `usbdevice` service that rewrites gadget: `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 1 --verbose --stop-system-usb`
 - Verify logs:
   - `final UDC state` is non-empty
-  - `Configured UVC H.264 640x480 ...` appears
+  - `Configured UVC ... 640x480 ...` appears
 
 ## 4) Stream Check (Board + Host)
 
 - Board:
-  - `my_uvc -c /userdata/my_uvc.ini`
+  - H.264:
+    - `my_uvc -c /userdata/my_uvc.ini --codec h264`
+  - MJPEG:
+    - `my_uvc -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir`
+  - MJPEG + PiP:
+    - `my_uvc -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir --pip-enable 1 --pip-overlay /userdata/mjpeg_overlay --pip-x 20 --pip-y 20 --pip-w 160 --pip-h 120 --pip-jpeg-quality 85`
   - or with explicit size override:
     - `my_uvc -c /userdata/my_uvc.ini --size 640x480`
 - Host:
   - `v4l2-ctl -d /dev/videoX --list-formats-ext`
-  - `ffplay -f v4l2 -input_format h264 -video_size 640x480 -framerate 25 /dev/videoX`
-  - Expected: format `H264`, interval includes `0.040s (25.000 fps)`
+  - H.264 preview:
+    - `ffplay -f v4l2 -input_format h264 -video_size 640x480 -framerate 25 /dev/videoX`
+  - MJPEG preview:
+    - `ffplay -f v4l2 -input_format mjpeg -video_size 640x480 -framerate 25 /dev/videoX`
+  - Expected: format includes `H264` or `MJPG` accordingly.
+
+## 4.0.1) PiP Library Sanity (Board)
+
+- If PiP reports `Wrong JPEG library version`, check board rootfs provides both `libjpeg.so.62` and `libjpeg.so.8`.
+- `my_uvc` must link against `libjpeg.so.8` when `JPEG_LIB_VERSION=80` headers are used.
 
 ## 4.1) FPS Negotiation Quick Troubleshooting
 

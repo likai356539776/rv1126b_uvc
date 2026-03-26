@@ -4,12 +4,12 @@
 
 - 项目目录：`/home/kama/workspace/ubuntu20.04/uvc_sigle/my_uvc`
 - 目标平台：RV1126B (aarch64)
-- 主要功能：基于 USB Gadget 的 H.264 UVC 多路推流（文件源）
+- 主要功能：基于 USB Gadget 的 UVC 多路推流（文件源，支持 H.264 / MJPEG；MJPEG 支持实时画中画 PiP）
 - 当前代码状态：可运行，已支持高路数配置与一键选择 profile
 
 ## 2. 当前已完成能力（关键）
 
-- 支持 H.264 UVC 推流，默认配置文件路径为：
+- 支持 UVC 推流（H.264 / MJPEG），默认配置文件路径为：
   - `/userdata/my_uvc.ini`
 - 支持多路范围：
   - 应用侧：`1..16`
@@ -17,6 +17,14 @@
 - 支持每路独立配置：
   - `channelN_h264_path`（N=0..15）
   - `channelN_fps`（N=0..15）
+- 支持 MJPEG 输入源：
+  - 单 `.jpg/.jpeg`
+  - 多 JPEG 拼接文件（按 `0xFFD8` 分帧）
+  - 目录（读取目录下所有 `.jpg/.jpeg`，按文件名排序）
+- 支持 MJPEG 实时画中画（PiP）：
+  - `pip_enable`
+  - `pip_overlay_path`（文件或目录；目录下图片轮播）
+  - `pip_x/pip_y/pip_w/pip_h/pip_jpeg_quality`
 - 支持复开流鲁棒性参数：
   - `sync_to_idr_on_open`
   - `inject_sps_pps_on_idr`
@@ -94,6 +102,7 @@
 - 高路数（>=10）对 USB 带宽、主机侧解码能力和调度压力较敏感，建议先降 fps 再逐步上调。
 - `--fps`（USB 协商帧率）与 `my_uvc.ini` 的每路 `channelN_fps` 需要协同配置，避免“协商值与推流节拍不一致”。
 - 若复开流出现 `non-existing PPS`，优先上调 `startup_prime_frames`（建议按 +2 递增）。
+- Buildroot 注意：若板端同时存在 `libjpeg.so.62` 与 `libjpeg.so.8`，PiP 需要链接 `libjpeg.so.8`，否则会报 `Wrong JPEG library version`。
 - **多路 6/7/8 在 PC 上无数据**：板端与 `f_uvc`/应用侧已验证 8 路均在推流；问题集中在 **Host USB2（480M）+ 多路等时 UVC 的资源分配/驱动行为**。DTS 是否仅 HS、能否改 USB3 需单独确认；勿再堆叠用户态“通道映射”实验代码。
 
 ## 7. 新会话快速恢复模板（复制可用）

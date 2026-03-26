@@ -52,22 +52,38 @@
 ## 3) USB Gadget 检查（板端）
 
 - 执行：
-  - `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 1 --verbose`
+  - H.264：
+    - `my_uvc_usb_config.sh -f H.264 -w 640 -h 480 -p 25 -n 1 --verbose`
+  - MJPEG：
+    - `my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 1 --verbose`
   - 若板端存在会覆盖 gadget 的系统服务（如 `usbdevice`）：`my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 1 --verbose --stop-system-usb`
 - 验证日志：
   - `final UDC state` 非空
-  - 出现 `Configured UVC H.264 640x480 ...`
+  - 出现 `Configured UVC ... 640x480 ...`
 
 ## 4) 推流检查（板端 + 主机）
 
 - 板端：
-  - `my_uvc -c /userdata/my_uvc.ini`
+  - H.264：
+    - `my_uvc -c /userdata/my_uvc.ini --codec h264`
+  - MJPEG：
+    - `my_uvc -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir`
+  - MJPEG + 画中画（PiP）：
+    - `my_uvc -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir --pip-enable 1 --pip-overlay /userdata/mjpeg_overlay --pip-x 20 --pip-y 20 --pip-w 160 --pip-h 120 --pip-jpeg-quality 85`
   - 或显式覆盖分辨率：
     - `my_uvc -c /userdata/my_uvc.ini --size 640x480`
 - 主机：
   - `v4l2-ctl -d /dev/videoX --list-formats-ext`
-  - `ffplay -f v4l2 -input_format h264 -video_size 640x480 -framerate 25 /dev/videoX`
-  - 期望：格式为 `H264`，帧间隔包含 `0.040s (25.000 fps)`
+  - H.264 预览：
+    - `ffplay -f v4l2 -input_format h264 -video_size 640x480 -framerate 25 /dev/videoX`
+  - MJPEG 预览：
+    - `ffplay -f v4l2 -input_format mjpeg -video_size 640x480 -framerate 25 /dev/videoX`
+  - 期望：对应格式为 `H264` 或 `MJPG`。
+
+## 4.0.1) PiP 依赖检查（板端）
+
+- 若 PiP 报 `Wrong JPEG library version`，通常是板端同时存在 `libjpeg.so.62` 与 `libjpeg.so.8` 且链接/运行库不一致。
+- 当使用 `JPEG_LIB_VERSION=80` 头文件时，`my_uvc` 必须链接到 `libjpeg.so.8`。
 
 ## 4.1) FPS 协商快速排障
 

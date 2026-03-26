@@ -29,17 +29,26 @@
 ### Run manually (board)
 
 - USB gadget setup:
-  - `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 4 --verbose`
+  - H.264:
+    - `my_uvc_usb_config.sh -f H.264 -w 640 -h 480 -p 25 -n 4 --verbose`
+  - MJPEG:
+    - `my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 1 --verbose`
   - if system `usbdevice` service rewrites gadget, append `--stop-system-usb`
 - Start app:
-  - `my_uvc -c /userdata/my_uvc.ini --size 640x480`
+  - H.264:
+    - `my_uvc -c /userdata/my_uvc.ini --codec h264 --size 640x480`
+  - MJPEG (file/dir source):
+    - `my_uvc -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir --size 640x480`
+  - MJPEG + PiP (real-time overlay):
+    - `my_uvc -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir --size 640x480 --pip-enable 1 --pip-overlay /userdata/mjpeg_overlay --pip-x 20 --pip-y 20 --pip-w 160 --pip-h 120 --pip-jpeg-quality 85`
 
 ### Verify (host)
 
 - Enumerate devices:
   - `v4l2-ctl --list-devices`
 - Open stream:
-  - `ffplay -f v4l2 -input_format h264 -video_size 640x480 /dev/videoX`
+  - H.264: `ffplay -f v4l2 -input_format h264 -video_size 640x480 /dev/videoX`
+  - MJPEG: `ffplay -f v4l2 -input_format mjpeg -video_size 640x480 /dev/videoX`
 
 ## 3) Profile Files
 
@@ -59,4 +68,5 @@ Config profiles are in `../config/profiles/`:
 - Board runtime config path is unified as `/userdata/my_uvc.ini`.
 - App-side max channels: `16`.
 - USB script-side max channels: `16`.
+- Buildroot note: if board rootfs provides both `libjpeg.so.62` and `libjpeg.so.8`, `my_uvc` must link against `libjpeg.so.8` to avoid `Wrong JPEG library version` during PiP.
 
