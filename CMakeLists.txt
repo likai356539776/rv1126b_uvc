@@ -30,6 +30,7 @@ add_executable(my_uvc
 	src/main.cpp
 	src/app_config.cpp
 	src/pip_mjpeg.cpp
+	src/mpp_jpeg.cpp
 	src/uevent_stub.c
 	${MY_UVC_VENDOR_DIR}/uvc_control.c
 	${MY_UVC_VENDOR_DIR}/uvc_encode.c
@@ -41,6 +42,8 @@ add_executable(my_uvc
 target_include_directories(my_uvc PRIVATE
 	${CMAKE_CURRENT_SOURCE_DIR}/include
 	${MY_UVC_VENDOR_DIR}
+	${CMAKE_SYSROOT}/usr/include/rockchip
+	${CMAKE_SYSROOT}/usr/include/rga
 )
 
 target_compile_options(my_uvc PRIVATE
@@ -50,9 +53,9 @@ target_compile_options(my_uvc PRIVATE
 )
 
 if(MY_UVC_JPEG_LIB)
-	target_link_libraries(my_uvc PRIVATE pthread "${MY_UVC_JPEG_LIB}")
+	target_link_libraries(my_uvc PRIVATE pthread "${MY_UVC_JPEG_LIB}" rockchip_mpp rga)
 else()
-	target_link_libraries(my_uvc PRIVATE pthread JPEG::JPEG)
+	target_link_libraries(my_uvc PRIVATE pthread JPEG::JPEG rockchip_mpp rga)
 endif()
 
 install(TARGETS my_uvc RUNTIME DESTINATION bin)

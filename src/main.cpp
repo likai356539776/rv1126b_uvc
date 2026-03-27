@@ -1,4 +1,5 @@
 #include "app_config.h"
+#include "mpp_jpeg.h"
 #include "pip_mjpeg.h"
 
 #include <atomic>
@@ -435,12 +436,20 @@ void channel_worker(StreamChannelContext ch) {
 	                                     : ch.frames.size();
 
 	bool pip_ok = false;
-	std::vector<uint8_t> pip_overlay_rgb;                 // single overlay
-	std::vector<std::vector<uint8_t>> pip_overlay_rgbs;   // overlay slideshow (already scaled)
+	std::vector<std::vector<uint8_t>> pip_overlay_nv12s;
+	std::vector<uint8_t> pip_overlay_nv12_single;
 	size_t pip_overlay_idx = 0;
-	std::vector<uint8_t> pip_canvas_rgb;
 	std::vector<uint8_t> pip_jpeg_out;
+	PipHwContext *pip_hw_ctx = nullptr;
+	int pip_ow = (ch.pip_w + 1) & ~1;
+	int pip_oh = (ch.pip_h + 1) & ~1;
 	if (ch.mjpeg_mode && ch.pip_enable) {
+		if (!pip_hw_init(&pip_hw_ctx, ch.width, ch.height, ch.pip_jpeg_quality)) {
+			log_msg(LOG_ERROR, "pip: hw init failed (ch=%d)", ch.channel_id);
+			if (ch.stats) ch.stats->stream_on.store(0);
+			return;
+		}
+
 		std::vector<uint8_t> ov_jpg;
 		if (is_dir_path(ch.pip_overlay_path)) {
 			std::vector<std::filesystem::path> ov_paths;
@@ -448,50 +457,54 @@ void channel_worker(StreamChannelContext ch) {
 				log_msg(LOG_ERROR, "pip: overlay dir has no jpg: %s (ch=%d)", ch.pip_overlay_path.c_str(),
 				        ch.channel_id);
 			} else {
-				pip_overlay_rgbs.reserve(ov_paths.size());
+				pip_overlay_nv12s.reserve(ov_paths.size());
 				for (size_t i = 0; i < ov_paths.size(); i++) {
 					const auto &p = ov_paths[i];
 					std::vector<uint8_t> ov_dec;
-					int ojw = 0;
-					int ojh = 0;
+					int ojw = 0, ojh = 0;
 					if (!pip_mjpeg_decode_jpeg_file_rgb(p.c_str(), &ov_dec, &ojw, &ojh)) {
 						log_msg(LOG_ERROR, "pip: overlay[%zu] JPEG decode failed: %s (ch=%d) reason='%s'", i, p.c_str(),
 						        ch.channel_id, pip_mjpeg_last_error());
 						continue;
 					}
-					std::vector<uint8_t> scaled;
-					scaled.resize(static_cast<size_t>(ch.pip_w * ch.pip_h * 3));
-					pip_mjpeg_scale_rgb_bilinear(ov_dec.data(), ojw, ojh, scaled.data(), ch.pip_w, ch.pip_h);
-					pip_overlay_rgbs.push_back(std::move(scaled));
+					std::vector<uint8_t> scaled_rgb(static_cast<size_t>(pip_ow * pip_oh * 3));
+					pip_mjpeg_scale_rgb_bilinear(ov_dec.data(), ojw, ojh, scaled_rgb.data(), pip_ow, pip_oh);
+					std::vector<uint8_t> nv12;
+					if (!pip_hw_rgb_to_nv12(scaled_rgb.data(), pip_ow, pip_oh, &nv12)) {
+						log_msg(LOG_ERROR, "pip: overlay[%zu] RGB→NV12 failed (ch=%d)", i, ch.channel_id);
+						continue;
+					}
+					pip_overlay_nv12s.push_back(std::move(nv12));
 				}
-				if (!pip_overlay_rgbs.empty()) {
-					pip_canvas_rgb.resize(static_cast<size_t>(ch.width * ch.height * 3));
+				if (!pip_overlay_nv12s.empty()) {
 					pip_ok = true;
-					log_msg(LOG_INFO, "pip: ch=%d overlay_dir=%s frames=%zu scaled=%dx%d at (%d,%d)", ch.channel_id,
-					        ch.pip_overlay_path.c_str(), pip_overlay_rgbs.size(), ch.pip_w, ch.pip_h, ch.pip_x,
-					        ch.pip_y);
+					log_msg(LOG_INFO, "pip: ch=%d overlay_dir=%s frames=%zu nv12=%dx%d at (%d,%d)", ch.channel_id,
+					        ch.pip_overlay_path.c_str(), pip_overlay_nv12s.size(), pip_ow, pip_oh, ch.pip_x, ch.pip_y);
 				}
 			}
 		} else if (!read_file_all(ch.pip_overlay_path, &ov_jpg)) {
 			log_msg(LOG_ERROR, "pip: cannot read overlay %s (ch=%d)", ch.pip_overlay_path.c_str(), ch.channel_id);
 		} else {
 			std::vector<uint8_t> ov_dec;
-			int ojw = 0;
-			int ojh = 0;
+			int ojw = 0, ojh = 0;
 			if (!pip_mjpeg_decode_jpeg_rgb(ov_jpg.data(), ov_jpg.size(), &ov_dec, &ojw, &ojh)) {
 				log_msg(LOG_ERROR, "pip: overlay JPEG decode failed: %s (ch=%d) reason='%s'",
 				        ch.pip_overlay_path.c_str(), ch.channel_id, pip_mjpeg_last_error());
 			} else {
-				pip_overlay_rgb.resize(static_cast<size_t>(ch.pip_w * ch.pip_h * 3));
-				pip_mjpeg_scale_rgb_bilinear(ov_dec.data(), ojw, ojh, pip_overlay_rgb.data(), ch.pip_w, ch.pip_h);
-				pip_canvas_rgb.resize(static_cast<size_t>(ch.width * ch.height * 3));
-				pip_ok = true;
-				log_msg(LOG_INFO, "pip: ch=%d overlay=%s scaled=%dx%d at (%d,%d)", ch.channel_id,
-				        ch.pip_overlay_path.c_str(), ch.pip_w, ch.pip_h, ch.pip_x, ch.pip_y);
+				std::vector<uint8_t> scaled_rgb(static_cast<size_t>(pip_ow * pip_oh * 3));
+				pip_mjpeg_scale_rgb_bilinear(ov_dec.data(), ojw, ojh, scaled_rgb.data(), pip_ow, pip_oh);
+				if (!pip_hw_rgb_to_nv12(scaled_rgb.data(), pip_ow, pip_oh, &pip_overlay_nv12_single)) {
+					log_msg(LOG_ERROR, "pip: overlay RGB→NV12 failed (ch=%d)", ch.channel_id);
+				} else {
+					pip_ok = true;
+					log_msg(LOG_INFO, "pip: ch=%d overlay=%s nv12=%dx%d at (%d,%d)", ch.channel_id,
+					        ch.pip_overlay_path.c_str(), pip_ow, pip_oh, ch.pip_x, ch.pip_y);
+				}
 			}
 		}
 		if (!pip_ok) {
 			log_msg(LOG_ERROR, "channel %d exiting worker (pip init failed)", ch.channel_id);
+			pip_hw_deinit(pip_hw_ctx);
 			if (ch.stats)
 				ch.stats->stream_on.store(0);
 			return;
@@ -558,13 +571,13 @@ void channel_worker(StreamChannelContext ch) {
 					bg_ptr = ch.bitstream.data() + seg.first;
 					bg_len = seg.second;
 				}
-				const uint8_t *ov_ptr = pip_overlay_rgb.data();
-				if (!pip_overlay_rgbs.empty()) {
-					ov_ptr = pip_overlay_rgbs[pip_overlay_idx].data();
+				const uint8_t *ov_ptr = pip_overlay_nv12_single.data();
+				if (!pip_overlay_nv12s.empty()) {
+					ov_ptr = pip_overlay_nv12s[pip_overlay_idx].data();
 				}
 
-				if (!pip_mjpeg_composite_jpeg(bg_ptr, bg_len, ch.width, ch.height, ov_ptr, ch.pip_w, ch.pip_h, ch.pip_x,
-				                              ch.pip_y, ch.pip_jpeg_quality, &pip_jpeg_out, &pip_canvas_rgb)) {
+				if (!pip_hw_composite(pip_hw_ctx, bg_ptr, bg_len, ov_ptr, pip_ow, pip_oh,
+				                      ch.pip_x, ch.pip_y, &pip_jpeg_out)) {
 					if (ch.stats)
 						ch.stats->error_count.fetch_add(1);
 				} else {
@@ -575,9 +588,9 @@ void channel_worker(StreamChannelContext ch) {
 						ch.stats->total_frames.fetch_add(1);
 				}
 
-				if (!pip_overlay_rgbs.empty()) {
+				if (!pip_overlay_nv12s.empty()) {
 					pip_overlay_idx++;
-					if (pip_overlay_idx >= pip_overlay_rgbs.size())
+					if (pip_overlay_idx >= pip_overlay_nv12s.size())
 						pip_overlay_idx = 0;
 				}
 			} else if (!ch.mjpeg_frames.empty()) {
@@ -652,6 +665,8 @@ void channel_worker(StreamChannelContext ch) {
 			        sent_frames, ch.fps);
 		}
 	}
+
+	pip_hw_deinit(pip_hw_ctx);
 
 	if (ch.stats)
 		ch.stats->stream_on.store(0);

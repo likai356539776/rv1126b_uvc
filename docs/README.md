@@ -63,7 +63,54 @@ ffplay -f v4l2 -input_format h264 -video_size 640x480 /dev/videoX
 ffplay -f v4l2 -input_format mjpeg -video_size 640x480 /dev/videoX
 ```
 
-## 3) USB Hot-Plug Recovery
+## 3) MJPEG USB Command Matrix (1~8 channels)
+
+以下矩阵用于 `640x480 / MJPEG / 25fps` 场景，优先使用默认自动策略；若多路时后几路无图，再使用 `--mjpeg-max-frame-size` 固定值做收敛。
+
+```bash
+# 1路（优先画质）
+my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 1 --stop-system-usb
+# 备选：--mjpeg-max-frame-size 153600
+
+# 2路
+my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 2 --stop-system-usb
+# 备选：--mjpeg-max-frame-size 102400
+
+# 3路
+my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 3 --stop-system-usb
+# 备选：--mjpeg-max-frame-size 81920
+
+# 4路
+my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 4 --stop-system-usb
+# 备选：--mjpeg-max-frame-size 76800
+
+# 5路
+my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 5 --stop-system-usb
+# 备选：--mjpeg-max-frame-size 65536
+
+# 6路
+my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 6 --stop-system-usb
+# 推荐固定值起点：--mjpeg-max-frame-size 61440
+# 若仍不稳：--mjpeg-max-frame-size 57344
+
+# 7路
+my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 7 --stop-system-usb
+# 推荐固定值起点：--mjpeg-max-frame-size 57344
+# 若仍不稳：--mjpeg-max-frame-size 53248
+
+# 8路
+my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 8 --stop-system-usb
+# 推荐固定值起点：--mjpeg-max-frame-size 53248
+# 若仍不稳：--mjpeg-max-frame-size 49152
+```
+
+建议每次切换路数都执行：
+1) `killall my_uvc`
+2) 执行对应 `my_uvc_usb_config.sh` 命令
+3) 拔插 USB 线，触发主机重新枚举
+4) 再启动 `my_uvc`
+
+## 4) USB Hot-Plug Recovery
 
 USB 热拔插恢复是内置能力，无需额外操作：
 
@@ -77,7 +124,7 @@ USB 热拔插恢复是内置能力，无需额外操作：
 - 始终使用 `--stop-system-usb` 避免系统 USB 服务干扰
 - 设置 `MY_UVC_UEVENT_DUMP_ALL=1` 环境变量可查看完整 uevent 日志
 
-## 4) Profile Files
+## 5) Profile Files
 
 配置模板位于 `../config/profiles/`：
 
@@ -92,7 +139,7 @@ USB 热拔插恢复是内置能力，无需额外操作：
 | `my_uvc_12ch_independent.ini` | 12 |
 | `my_uvc_16ch_independent.ini` | 16 |
 
-## 5) Notes
+## 6) Notes
 
 - 板端配置路径统一为 `/userdata/my_uvc.ini`
 - 应用侧最大路数：16

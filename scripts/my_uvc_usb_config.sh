@@ -12,13 +12,15 @@ DO_UNBIND=1
 STOP_SYSTEM_USB=0
 STREAMING_MAXPACKET=""
 STREAMING_INTERVAL=""
+MJPEG_MAX_FRAME_SIZE=""
 
 usage() {
-	echo "Usage: $0 [-f H.264|MJPEG] [-w width] [-h height] [-p fps] [-n channels] [--verbose] [--no-unbind] [--stop-system-usb] [--streaming-maxpacket n] [--streaming-interval n]"
+	echo "Usage: $0 [-f H.264|MJPEG] [-w width] [-h height] [-p fps] [-n channels] [--verbose] [--no-unbind] [--stop-system-usb] [--streaming-maxpacket n] [--streaming-interval n] [--mjpeg-max-frame-size bytes]"
 	echo "Example: $0 -f H.264 -w 640 -h 480"
 	echo "  -f: UVC payload format (same layout as rkipc rkipc_usb_config.sh)"
 	echo "  --streaming-maxpacket: override per-UVC function streaming_maxpacket"
 	echo "  --streaming-interval: override per-UVC function streaming_interval"
+	echo "  --mjpeg-max-frame-size: override MJPEG dwMaxVideoFrameBufferSize (bytes)"
 }
 
 logv() {
@@ -50,6 +52,49 @@ validate_channels() {
 		exit 1
 		;;
 	esac
+}
+
+calc_mjpeg_max_frame_size() {
+	_base=$((WIDTH * HEIGHT))
+	_den=2
+
+	# Multi-channel strategy:
+	# more channels / higher fps -> smaller declared max frame size
+	# to avoid host-side bandwidth over-reservation.
+	if [ "$CHANNELS" -le 1 ]; then
+		_den=2
+	elif [ "$CHANNELS" -le 2 ]; then
+		_den=3
+	elif [ "$CHANNELS" -le 4 ]; then
+		_den=4
+	elif [ "$CHANNELS" -le 6 ]; then
+		_den=5
+	else
+		_den=6
+	fi
+
+	if [ "$FPS" -ge 30 ]; then
+		_den=$((_den + 1))
+	fi
+
+	_size=$((_base / _den))
+	_max=$((_base / 2))
+	_min=$((_base / 10))
+
+	# Hard guard rails for stability and compatibility.
+	if [ "$_min" -lt 32768 ]; then
+		_min=32768
+	fi
+	if [ "$_size" -lt "$_min" ]; then
+		_size=$_min
+	fi
+	if [ "$_size" -gt "$_max" ]; then
+		_size=$_max
+	fi
+
+	# Align to 1KB boundary for cleaner descriptor values.
+	_size=$(((_size + 1023) / 1024 * 1024))
+	echo "$_size"
 }
 
 while [ $# -gt 0 ]; do
@@ -99,6 +144,11 @@ while [ $# -gt 0 ]; do
 	--streaming-interval)
 		[ $# -ge 2 ] || { usage; exit 1; }
 		STREAMING_INTERVAL="$2"
+		shift 2
+		;;
+	--mjpeg-max-frame-size)
+		[ $# -ge 2 ] || { usage; exit 1; }
+		MJPEG_MAX_FRAME_SIZE="$2"
 		shift 2
 		;;
 	--help|-help|-?)
@@ -165,7 +215,12 @@ echo "my_uvc" > "$GADGET_DIR/strings/0x409/product"
 echo 500 > "$GADGET_DIR/configs/b.1/MaxPower"
 
 DEFAULT_INTERVAL="$(fps_to_interval "$FPS")"
-logv "fps=${FPS}, default interval=${DEFAULT_INTERVAL}, channels=${CHANNELS}"
+if [ -n "$MJPEG_MAX_FRAME_SIZE" ]; then
+	MJPEG_DECLARED_MAX="$MJPEG_MAX_FRAME_SIZE"
+else
+	MJPEG_DECLARED_MAX="$(calc_mjpeg_max_frame_size)"
+fi
+logv "fps=${FPS}, default interval=${DEFAULT_INTERVAL}, channels=${CHANNELS}, mjpeg_max_frame=${MJPEG_DECLARED_MAX}"
 
 configure_one_uvc() {
 	_idx="$1"
@@ -179,7 +234,7 @@ configure_one_uvc() {
 	if [ -n "$STREAMING_MAXPACKET" ]; then
 		echo "$STREAMING_MAXPACKET" > "${_func_dir}/streaming_maxpacket"
 	elif [ "$CHANNELS" -gt 1 ]; then
-		echo 1024 > "${_func_dir}/streaming_maxpacket"
+		echo 2048 > "${_func_dir}/streaming_maxpacket"
 	else
 		echo 3072 > "${_func_dir}/streaming_maxpacket"
 	fi
@@ -201,11 +256,12 @@ configure_one_uvc() {
 		echo "$WIDTH" > "${_res_dir}/wWidth"
 		echo "$HEIGHT" > "${_res_dir}/wHeight"
 		echo "$DEFAULT_INTERVAL" > "${_res_dir}/dwDefaultFrameInterval"
-		echo $((WIDTH * HEIGHT * 20)) > "${_res_dir}/dwMinBitRate"
-		echo $((WIDTH * HEIGHT * 20)) > "${_res_dir}/dwMaxBitRate"
-		echo $((WIDTH * HEIGHT * 2)) > "${_res_dir}/dwMaxVideoFrameBufferSize"
-		# Same fps grid as H.264 path below (30..5fps)
-		printf '%s\n' 333333 400000 500000 666666 1000000 2000000 > "${_res_dir}/dwFrameInterval"
+		echo $((WIDTH * HEIGHT * 10)) > "${_res_dir}/dwMinBitRate"
+		echo $((WIDTH * HEIGHT * 10)) > "${_res_dir}/dwMaxBitRate"
+		echo "${MJPEG_DECLARED_MAX}" > "${_res_dir}/dwMaxVideoFrameBufferSize"
+		# Keep a single discrete interval to avoid host fallback to 5fps.
+		# This follows the stable negotiation strategy used in earlier working versions.
+		echo "$DEFAULT_INTERVAL" > "${_res_dir}/dwFrameInterval"
 		ln -sf "${_func_dir}/streaming/mjpeg/m" "${_func_dir}/streaming/header/h/m"
 	else
 		_res_dir="${_func_dir}/streaming/framebased/f1/${WIDTH}_${HEIGHT}p"

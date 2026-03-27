@@ -85,6 +85,28 @@ static int uvc_trace_enabled(void) {
 	return enabled;
 }
 
+/* Verbose UVC PROBE/COMMIT step logging (off by default; set MY_UVC_NEGO=1). */
+static int uvc_nego_verbose(void) {
+	static int inited = 0;
+	static int enabled = 0;
+
+	if (!inited) {
+		const char *env = getenv("MY_UVC_NEGO");
+		enabled = (env && env[0] && env[0] != '0') ? 1 : 0;
+		inited = 1;
+	}
+
+	return enabled;
+}
+
+static void uvc_fourcc_to_str(char out[5], unsigned int fcc) {
+	out[0] = (char)(fcc & 0xff);
+	out[1] = (char)((fcc >> 8) & 0xff);
+	out[2] = (char)((fcc >> 16) & 0xff);
+	out[3] = (char)((fcc >> 24) & 0xff);
+	out[4] = '\0';
+}
+
 #define UVC_TRACE(...)                                                                              \
 	do {                                                                                            \
 		if (uvc_trace_enabled())                                                                    \
@@ -1606,11 +1628,16 @@ static void uvc_fill_streaming_control(struct uvc_device *dev, struct uvc_stream
 		ctrl->dwMaxVideoFrameSize = frame->width * frame->height * 1.5;
 		break;
 	case V4L2_PIX_FMT_MJPEG:
+		dev->width = frame->width;
+		dev->height = frame->height;
+		dev->imgsize = frame->width * frame->height / 2;
+		ctrl->dwMaxVideoFrameSize = dev->imgsize;
+		break;
 	case V4L2_PIX_FMT_H264:
 	case V4L2_PIX_FMT_HEVC:
 		dev->width = frame->width;
 		dev->height = frame->height;
-		dev->imgsize = frame->width * frame->height * 2 /*1.5*/;
+		dev->imgsize = frame->width * frame->height * 2;
 		ctrl->dwMaxVideoFrameSize = dev->imgsize;
 		break;
 	}
@@ -2954,19 +2981,37 @@ static int uvc_events_process_data(struct uvc_device *dev, struct uvc_request_da
 		target->dwMaxVideoFrameSize = frame->width * frame->height * 3 / 2;
 		break;
 	case V4L2_PIX_FMT_MJPEG:
+		if (dev->imgsize == 0)
+			printf("WARNING: MJPEG requested and no image loaded.\n");
+		dev->width = frame->width;
+		dev->height = frame->height;
+		dev->imgsize = frame->width * frame->height / 2;
+		UVC_TRACE("uvc_events_process_data fcc=%d width=%d imgsize=%d video_id=%d\n", format->fcc,
+		          dev->width, dev->imgsize, dev->video_id);
+		target->dwMaxVideoFrameSize = dev->imgsize;
+		break;
 	case V4L2_PIX_FMT_H264:
 	case V4L2_PIX_FMT_HEVC:
 		if (dev->imgsize == 0)
-			printf("WARNING: MJPEG/h.264/h.265 requested and no image loaded.\n");
+			printf("WARNING: h.264/h.265 requested and no image loaded.\n");
 		dev->width = frame->width;
 		dev->height = frame->height;
-		dev->imgsize = frame->width * frame->height * 2 /*1.5*/;
+		dev->imgsize = frame->width * frame->height * 2;
 		UVC_TRACE("uvc_events_process_data fcc=%d width=%d imgsize=%d video_id=%d\n", format->fcc,
 		          dev->width, dev->imgsize, dev->video_id);
 		target->dwMaxVideoFrameSize = dev->imgsize;
 		break;
 	}
 	target->dwFrameInterval = *interval;
+
+	if (uvc_nego_verbose()) {
+		fprintf(stderr,
+		        "[uvc-nego] %s: host_int=%u dev_int=%u max_frm=%u maxpkt=%u vid=%d\n",
+		        dev->control == UVC_VS_PROBE_CONTROL ? "PROBE" : "COMMIT",
+		        (unsigned int)ctrl->dwFrameInterval, (unsigned int)target->dwFrameInterval,
+		        (unsigned int)target->dwMaxVideoFrameSize, (unsigned int)dev->maxpkt,
+		        dev->video_id);
+	}
 
 	if (dev->control == UVC_VS_COMMIT_CONTROL) {
 		if (uvc_video_get_uvc_process(dev->video_id))
@@ -2975,9 +3020,14 @@ static int uvc_events_process_data(struct uvc_device *dev, struct uvc_request_da
 		dev->width = frame->width;
 		dev->height = frame->height;
 		dev->fps = 10000000 / target->dwFrameInterval;
-		printf("UVC_COMMIT: video_id=%d stream_intf=%u last_wIndex=0x%04x fmt=%c%c%c%c %ux%u fps=%u\n",
-		       dev->video_id, dev->streaming_intf, dev->last_setup_wIndex, pixfmtstr(dev->fcc),
-		       dev->width, dev->height, dev->fps);
+		{
+			char fcc5[5];
+
+			uvc_fourcc_to_str(fcc5, (unsigned int)dev->fcc);
+			fprintf(stderr, "[uvc] commit vid=%d fourcc=%s %ux%u fps=%u host_interval=%u\n",
+			        dev->video_id, fcc5, dev->width, dev->height, dev->fps,
+			        (unsigned int)ctrl->dwFrameInterval);
+		}
 		/*
 		 * Try to set the default format at the V4L2 video capture
 		 * device as requested by the user.
