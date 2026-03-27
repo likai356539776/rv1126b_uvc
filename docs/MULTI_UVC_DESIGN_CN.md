@@ -1,87 +1,114 @@
-# my_uvc 多路 UVC 设计说明（v2 规划）
+# my_uvc 多路 UVC 设计说明
 
 ## 目标
 
-在当前 `my_uvc` 基础上支持多个 UVC Function（例如 `uvc.gs1`、`uvc.gs2`、`uvc.gs3`...），并保持每一路可独立配置与独立运行。
+在 `my_uvc` 基础上支持多个 UVC Function（`uvc.gs1`、`uvc.gs2`...），保持每路可独立配置与独立运行，并具备 USB 热拔插恢复能力。
 
-## v1 基线（历史）
+## 架构概览
 
-- 单 UVC Function：`uvc.gs1`
-- 单码流源：一个 H.264 文件
-- `main.cpp` 仅维护一个推流上下文
+```
+┌──────────────────────────────────────────────────┐
+│  main.cpp                                        │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐  │
+│  │ channel_   │  │ channel_   │  │ stats_     │  │
+│  │ worker[0]  │  │ worker[N]  │  │ worker     │  │
+│  └─────┬──────┘  └─────┬──────┘  └────────────┘  │
+│        │               │                         │
+│  ┌─────▼───────────────▼─────────────────────┐   │
+│  │ third_party/uvc（UVC Gadget 核心层）      │   │
+│  │ ┌──────────────┐  ┌──────────────────────┐│   │
+│  │ │uvc_control_  │  │ uvc_gadget_pthread   ││   │
+│  │ │thread        │  │ ×N（每 video_id 一个）││   │
+│  │ │ - 扫描节点   │  │ - select() 事件循环  ││   │
+│  │ │ - 增删管理   │  │ - 事件处理           ││   │
+│  │ │ - 生命周期   │  │ - 视频数据处理       ││   │
+│  │ └──────┬───────┘  │ - 热拔插线程存活     ││   │
+│  │        │          └──────────────────────┘│   │
+│  │ ┌──────▼───────┐                          │   │
+│  │ │uevent_stub.c │                          │   │
+│  │ │ - netlink    │                          │   │
+│  │ │ - 监听       │                          │   │
+│  │ │   video4linux │                          │   │
+│  │ │   增删事件   │                          │   │
+│  │ └─────────────┘                           │   │
+│  └───────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────┘
+```
 
-## 当前 v1.2 状态
+## 源文件职责
 
-- 多路能力已可配置（应用侧 `channels`，USB 脚本侧 `-n/--channels`），当前上限为 16 路。
-- 支持每路独立文件与独立 fps 覆盖：
-  - `channelN_h264_path`
-  - `channelN_fps`
-- 已可用于多路枚举测试与基础独立推流验证。
-- 已修复“单路开关流影响其他路”的问题，每路启停互不干扰。
-- 已加入可观测性与鲁棒性控制：
-  - `log_level`（error/info/debug）
-  - `stats_enable` + `stats_interval_sec`（每路周期统计）
-  - `startup_prime_frames`（复开流时重复首个 IDR+SPS/PPS，提升首屏成功率）
+| 文件 | 职责 |
+|------|------|
+| `src/main.cpp` | 主入口、配置解析、每路工作线程、统计线程 |
+| `src/app_config.cpp` | INI 配置解析 |
+| `src/pip_mjpeg.cpp` | MJPEG 画中画合成（libjpeg） |
+| `src/uevent_stub.c` | netlink uevent 监听，USB 热拔插检测 |
+| `third_party/uvc/uvc_control.c` | UVC 控制线程：设备扫描、生命周期管理 |
+| `third_party/uvc/uvc-gadget.c` | V4L2 UVC 事件循环、缓冲区管理、热拔插恢复 |
+| `third_party/uvc/uvc_video.cpp` | UVC 视频线程管理、run_state 控制 |
+| `third_party/uvc/uvc_encode.c` | 编码格式初始化 |
 
-## v2 目标架构
+## USB 热拔插恢复设计
 
-- `UsbGadgetManager`
-  - 负责 configfs 多 function 配置
-  - 负责 bind/unbind 与通道到 `/dev/videoX` 的映射输出
+### 问题
 
-- `ChannelConfig`（每路配置）
-  - `enable`
-  - `format`（初期仅 H.264）
-  - `width` / `height`
-  - `fps`
-  - `source_path`
-  - `loop_file`
+在 Rockchip gadget 平台上，USB 拔线不会销毁 `/dev/videoN` 设备节点（节点由 configfs 管理，与 USB 物理连接无关）。UVC 内核驱动会禁用 function 但保持 V4L2 设备活跃。如果旧的 mmap 缓冲区在 USB 重连时仍然映射着，`VIDIOC_REQBUFS` 会返回 `-EBUSY`，导致内核级联崩溃并完全拆除 gadget。
 
-- `ChannelRuntime`（每路运行态）
-  - NAL/帧索引
-  - SPS/PPS 缓存
-  - 主机协商 fps
-  - stream on/off 状态
-  - 统计信息
+### 解决方案：线程原地存活 + 即时清理缓冲区
 
-- `StreamScheduler`
-  - 可采用“每路一线程”或“单循环多路时序”两种策略
-  - 保证每路独立节拍与推流稳定性
+```
+USB 拔线
+    │
+    ▼
+uvc_video_process() → VIDIOC_QBUF 返回 ENODEV
+    │
+    ▼
+立即清理：
+  1. VIDIOC_STREAMOFF（可能失败，无影响）
+  2. munmap() 释放所有缓冲区
+  3. VIDIOC_REQBUFS(0) 释放内核侧缓冲区
+  4. is_streaming = 0
+    │
+    ▼
+线程在 select() 中以 2s 超时等待（不退出、不空转）
+    │
+    ▼  （USB 线重新插入）
+    │
+内核在同一 fd 上发送 STREAMON 事件
+    │
+    ▼
+uvc_handle_streamon_event()：
+  1. 释放任何残留旧缓冲区（安全兜底）
+  2. VIDIOC_REQBUFS(nbufs) → 分配全新缓冲区
+  3. mmap() 映射新缓冲区
+  4. VIDIOC_STREAMON
+    │
+    ▼
+推流自动恢复
+```
 
-## 关键实现点
+### 关键设计决策
 
-1. **USB 配置脚本**
-   - 提供路数与分辨率参数；
-   - 创建多个 `uvc.gsN` 并统一挂到同一 config。
+1. **线程在 ENODEV 时不退出** — 避免复杂的线程重建和控制线程协调。
+2. **缓冲区立即释放** — 防止 USB 重连时出现 `-EBUSY`。
+3. **`dev->mem` 释放后置 NULL** — 防止重复释放，支持安全重检查。
+4. **`uvc_handle_streamon_event()` 总是先清理** — 双重保险，确保残留状态被清除。
+5. **`select()` 使用 2s 超时** — 断线期间不空转 CPU，重连时仍能快速响应。
 
-2. **UVC 控制链路**
-   - 继续复用本地 `third_party/uvc`；
-   - 通道标识由检测到的 `/dev/videoX` 决定。
+## 已完成里程碑
 
-3. **帧源抽象**
-   - 逐步从单一文件源过渡到 `IFrameSource` 接口：
-     - `FileFrameSource`（当前实现）
-     - `VencFrameSource`（后续实时编码输出）
-
-4. **故障隔离**
-   - 单路异常不应拖垮其他路；
-   - 单路关闭不应触发全局推流退出。
-
-5. **可观测性**
-   - 保留每路统计（实时 fps、累计帧数、错误计数、stream 状态）；
-   - 保留开关流边沿日志，方便长时压测定位。
-
-## 里程碑（更新）
-
-- M1：双路同源（`uvc.gs1` + `uvc.gs2`） ✅
-- M2：双路独立文件 + 独立 fps ✅
+- M1：双路同源推流 ✅
+- M2：每路独立文件 + 独立帧率 ✅
 - M3：复开流鲁棒性增强（startup priming + 每路 stream gate）✅
-- M4：增强错误遥测（每路最近错误原因 + 时间戳）
-- M5：接入实时 VENC 源（至少一路）
+- M4：USB 热拔插恢复（线程存活 + 缓冲区清理 + 自动恢复流）✅
+
+## 后续里程碑
+
+- M5：增强错误遥测（每路最近错误原因 + 时间戳）
+- M6：接入实时 VENC 源（至少一路）
 
 ## 风险点
 
-- 多路 UVC 的主机兼容性受 OS、播放器和驱动栈影响明显；
-- 高路数并发时 USB 带宽/主机侧解码能力可能成为瓶颈；
-- 高路数下需特别关注日志开销与线程调度开销。
-
+- 多路 UVC 的主机兼容性受 OS、播放器和驱动栈影响明显。
+- USB2（480Mbps）带宽限制下，高码率多路并发约 4~5 路为工程上限。
+- USB 热拔插恢复依赖 gadget 设备节点在 USB 断开时保持存在（Rockchip configfs 默认行为）。

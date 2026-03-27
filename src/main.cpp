@@ -424,6 +424,7 @@ bool load_channel_stream(StreamChannelContext *ch) {
 void channel_worker(StreamChannelContext ch) {
 	try {
 	std::vector<uint8_t> frame_buf;
+	int active_video_id = ch.video_id;
 	size_t frame_idx = ch.mjpeg_mode ? 0 : ch.first_idr_frame_idx;
 	size_t sent_frames = 0;
 	bool stream_was_on = false;
@@ -498,12 +499,30 @@ void channel_worker(StreamChannelContext ch) {
 	}
 
 	while (g_run.load()) {
+		// Re-resolve video_id by channel sequence after USB replug/re-enumeration.
+		int latest_video_id = uvc_video_id_get(static_cast<unsigned int>(ch.channel_id));
+		if (latest_video_id >= 0 && latest_video_id != active_video_id) {
+			log_msg(LOG_INFO, "channel %d remap video_id %d -> %d", ch.channel_id, active_video_id,
+			        latest_video_id);
+			active_video_id = latest_video_id;
+			if (ch.stats)
+				ch.stats->video_id = active_video_id;
+			stream_was_on = false;
+		}
+		if (latest_video_id < 0) {
+			if (ch.stats && ch.stats->stream_on.load() != 0)
+				ch.stats->stream_on.store(0);
+			stream_was_on = false;
+			std::this_thread::sleep_for(std::chrono::milliseconds(ch.idle_sleep_ms));
+			continue;
+		}
+
 		// Per-channel stream gate: true only after this channel gets COMMIT/STREAMON.
-		bool channel_stream_on = uvc_video_get_uvc_process(ch.video_id);
+		bool channel_stream_on = uvc_video_get_uvc_process(active_video_id);
 		if (!channel_stream_on) {
 			if (ch.stats && ch.stats->stream_on.load() != 0) {
 				ch.stats->stream_on.store(0);
-				log_msg(LOG_DEBUG, "channel %d stream OFF (video_id=%d)", ch.channel_id, ch.video_id);
+				log_msg(LOG_DEBUG, "channel %d stream OFF (video_id=%d)", ch.channel_id, active_video_id);
 			}
 			stream_was_on = false;
 			std::this_thread::sleep_for(std::chrono::milliseconds(ch.idle_sleep_ms));
@@ -513,7 +532,7 @@ void channel_worker(StreamChannelContext ch) {
 		if (!stream_was_on) {
 			if (ch.stats && ch.stats->stream_on.load() == 0) {
 				ch.stats->stream_on.store(1);
-				log_msg(LOG_DEBUG, "channel %d stream ON (video_id=%d)", ch.channel_id, ch.video_id);
+				log_msg(LOG_DEBUG, "channel %d stream ON (video_id=%d)", ch.channel_id, active_video_id);
 			}
 			if (ch.sync_to_idr_on_open)
 				frame_idx = ch.mjpeg_mode ? 0 : ch.first_idr_frame_idx;
@@ -549,7 +568,8 @@ void channel_worker(StreamChannelContext ch) {
 					if (ch.stats)
 						ch.stats->error_count.fetch_add(1);
 				} else {
-					uvc_read_camera_buffer_by_id(pip_jpeg_out.data(), -1, pip_jpeg_out.size(), nullptr, 0, ch.video_id);
+					uvc_read_camera_buffer_by_id(pip_jpeg_out.data(), -1, pip_jpeg_out.size(), nullptr, 0,
+					                             active_video_id);
 					sent_frames++;
 					if (ch.stats)
 						ch.stats->total_frames.fetch_add(1);
@@ -563,14 +583,14 @@ void channel_worker(StreamChannelContext ch) {
 			} else if (!ch.mjpeg_frames.empty()) {
 				auto &img = ch.mjpeg_frames[send_frame_idx];
 				void *ptr = img.data();
-				uvc_read_camera_buffer_by_id(ptr, -1, img.size(), nullptr, 0, ch.video_id);
+				uvc_read_camera_buffer_by_id(ptr, -1, img.size(), nullptr, 0, active_video_id);
 				sent_frames++;
 				if (ch.stats)
 					ch.stats->total_frames.fetch_add(1);
 			} else {
 				const auto &seg = ch.mjpeg_ranges[send_frame_idx];
 				void *ptr = ch.bitstream.data() + seg.first;
-				uvc_read_camera_buffer_by_id(ptr, -1, seg.second, nullptr, 0, ch.video_id);
+				uvc_read_camera_buffer_by_id(ptr, -1, seg.second, nullptr, 0, active_video_id);
 				sent_frames++;
 				if (ch.stats)
 					ch.stats->total_frames.fetch_add(1);
@@ -588,7 +608,7 @@ void channel_worker(StreamChannelContext ch) {
 
 			if (!frame_buf.empty()) {
 				void *ptr = const_cast<uint8_t *>(frame_buf.data());
-				uvc_read_camera_buffer_by_id(ptr, -1, frame_buf.size(), nullptr, 0, ch.video_id);
+				uvc_read_camera_buffer_by_id(ptr, -1, frame_buf.size(), nullptr, 0, active_video_id);
 				sent_frames++;
 				if (ch.stats)
 					ch.stats->total_frames.fetch_add(1);
@@ -615,7 +635,7 @@ void channel_worker(StreamChannelContext ch) {
 				}
 				log_msg(LOG_DEBUG,
 				        "channel %d startup priming finished (video_id=%d, repeated=%d)",
-				        ch.channel_id, ch.video_id, ch.startup_prime_frames);
+				        ch.channel_id, active_video_id, ch.startup_prime_frames);
 			}
 		} else {
 			frame_idx++;
@@ -628,7 +648,7 @@ void channel_worker(StreamChannelContext ch) {
 		}
 
 		if (ch.log_every_frames > 0 && (sent_frames % static_cast<size_t>(ch.log_every_frames)) == 0) {
-			log_msg(LOG_INFO, "ch=%d video_id=%d sent=%zu fps=%d", ch.channel_id, ch.video_id,
+			log_msg(LOG_INFO, "ch=%d video_id=%d sent=%zu fps=%d", ch.channel_id, active_video_id,
 			        sent_frames, ch.fps);
 		}
 	}
@@ -906,7 +926,11 @@ int main(int argc, char **argv) {
 		log_msg(LOG_INFO, "config: pip=1 overlay=%s rect=%dx%d@%d,%d quality=%d", cfg.pip_overlay_path.c_str(),
 		        cfg.pip_w, cfg.pip_h, cfg.pip_x, cfg.pip_y, cfg.pip_jpeg_quality);
 
-	const uint32_t flags = UVC_CONTROL_CHECK_STRAIGHT;
+	/*
+	 * Follow rkipc default: event-driven uvc_control mode (flags=0).
+	 * This allows add/remove uevents to trigger video-id rebuild after USB replug.
+	 */
+	const uint32_t flags = 0;
 	{
 		char buf[16] = {0};
 		std::snprintf(buf, sizeof(buf), "%d", cfg.channels);

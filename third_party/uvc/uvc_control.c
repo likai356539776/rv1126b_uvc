@@ -41,6 +41,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define SYS_ISP_NAME "isp"
 #define SYS_CIF_NAME "cif"
@@ -268,6 +269,28 @@ static void uvc_control_wait(void) {
 	pthread_mutex_unlock(&run_mutex);
 }
 
+static void uvc_control_wait_timeout_ms(int timeout_ms) {
+	struct timespec ts;
+
+	if (timeout_ms <= 0) {
+		uvc_control_wait();
+		return;
+	}
+
+	clock_gettime(CLOCK_REALTIME, &ts);
+	ts.tv_sec += timeout_ms / 1000;
+	ts.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+	if (ts.tv_nsec >= 1000000000L) {
+		ts.tv_sec += 1;
+		ts.tv_nsec -= 1000000000L;
+	}
+
+	pthread_mutex_lock(&run_mutex);
+	if (run_flag)
+		(void)pthread_cond_timedwait(&run_cond, &run_mutex, &ts);
+	pthread_mutex_unlock(&run_mutex);
+}
+
 void uvc_control_signal(void) {
 	pthread_mutex_lock(&run_mutex);
 	pthread_cond_signal(&run_cond);
@@ -301,7 +324,11 @@ static void *uvc_control_thread(void *arg) {
 			uvc_control_wait();
 			uvc_video_id_exit_all();
 		} else {
-			uvc_control_wait();
+			/*
+			 * USB unplug/replug may miss one netlink "add" event.
+			 * When no UVC node is present, retry periodically.
+			 */
+			uvc_control_wait_timeout_ms(500);
 		}
 	}
 	pthread_exit(NULL);

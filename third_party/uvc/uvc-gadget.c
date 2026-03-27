@@ -982,6 +982,7 @@ static int uvc_uninit_device(struct uvc_device *dev) {
 		}
 
 		free(dev->mem);
+		dev->mem = NULL;
 		break;
 
 	case IO_METHOD_USERPTR:
@@ -991,6 +992,7 @@ static int uvc_uninit_device(struct uvc_device *dev) {
 				free(dev->dummy_buf[i].start);
 
 			free(dev->dummy_buf);
+			dev->dummy_buf = NULL;
 		}
 		break;
 	}
@@ -1090,6 +1092,8 @@ static void uvc_video_fill_buffer(struct uvc_device *dev, struct v4l2_buffer *bu
 #endif
 }
 
+static int uvc_video_reqbufs(struct uvc_device *dev, int nbufs);
+
 static int uvc_video_process(struct uvc_device *dev) {
 	struct v4l2_buffer vbuf;
 	unsigned int i;
@@ -1122,8 +1126,11 @@ static int uvc_video_process(struct uvc_device *dev) {
 	if (dev->run_standalone) {
 		/* UVC stanalone setup. */
 		ret = ioctl(dev->uvc_fd, VIDIOC_DQBUF, &dev->ubuf);
-		if (ret < 0)
+		if (ret < 0) {
+			if (errno == ENODEV)
+				goto disconnect_cleanup;
 			return ret;
+		}
 
 		dev->dqbuf_count++;
 
@@ -1134,6 +1141,8 @@ static int uvc_video_process(struct uvc_device *dev) {
 
 		ret = ioctl(dev->uvc_fd, VIDIOC_QBUF, &dev->ubuf);
 		if (ret < 0) {
+			if (errno == ENODEV)
+				goto disconnect_cleanup;
 			printf("%d: UVC: Unable to queue buffer: %s (%d).\n", dev->video_id, strerror(errno),
 			       errno);
 			return ret;
@@ -1216,6 +1225,19 @@ static int uvc_video_process(struct uvc_device *dev) {
 	}
 
 	return 0;
+
+disconnect_cleanup:
+	printf("%d: UVC: device disconnected (ENODEV), releasing buffers\n", dev->video_id);
+	uvc_video_stream(dev, 0);
+	if (dev->mem) {
+		uvc_uninit_device(dev);
+		uvc_video_reqbufs(dev, 0);
+	}
+	dev->is_streaming = 0;
+	dev->first_buffer_queued = 0;
+	dev->dqbuf_count = 0;
+	dev->qbuf_count = 0;
+	return -ENODEV;
 }
 
 static int uvc_video_qbuf_mmap(struct uvc_device *dev) {
@@ -1478,6 +1500,23 @@ static int uvc_video_reqbufs(struct uvc_device *dev, int nbufs) {
  */
 static int uvc_handle_streamon_event(struct uvc_device *dev) {
 	int ret;
+
+	/*
+	 * After USB replug the old mmap buffers may still be mapped.
+	 * Release them first so VIDIOC_REQBUFS does not return -EBUSY.
+	 */
+	if (dev->is_streaming) {
+		uvc_video_stream(dev, 0);
+		dev->is_streaming = 0;
+	}
+	if (dev->mem) {
+		uvc_uninit_device(dev);
+		uvc_video_reqbufs(dev, 0);
+	}
+	dev->dqbuf_count = 0;
+	dev->qbuf_count = 0;
+	dev->first_buffer_queued = 0;
+	dev->uvc_shutdown_requested = 0;
 
 	ret = uvc_video_reqbufs(dev, dev->nbufs);
 	if (ret < 0)
@@ -3008,7 +3047,30 @@ static void uvc_events_process(struct uvc_device *dev) {
 
 	ret = ioctl(dev->uvc_fd, VIDIOC_DQEVENT, &v4l2_event);
 	if (ret < 0) {
-		printf("VIDIOC_DQEVENT failed: %s (%d)\n", strerror(errno), errno);
+		if (errno == ENODEV) {
+			/*
+			 * USB cable unplugged.  Do NOT kill this thread: the
+			 * gadget device node survives and will receive fresh
+			 * STREAMON once the cable is reconnected.  Buffer
+			 * cleanup (if not yet done by uvc_video_process) is
+			 * performed here as well.
+			 */
+			if (dev->is_streaming) {
+				printf("%d: UVC: DQEVENT ENODEV, releasing buffers\n",
+				       dev->video_id);
+				uvc_video_stream(dev, 0);
+				if (dev->mem) {
+					uvc_uninit_device(dev);
+					uvc_video_reqbufs(dev, 0);
+				}
+				dev->is_streaming = 0;
+				dev->first_buffer_queued = 0;
+				dev->dqbuf_count = 0;
+				dev->qbuf_count = 0;
+			}
+		} else {
+			printf("VIDIOC_DQEVENT failed: %s (%d)\n", strerror(errno), errno);
+		}
 		return;
 	}
 
@@ -3475,7 +3537,7 @@ int uvc_gadget_main(int id) {
 			nfds = max(vdev->v4l2_fd, udev->uvc_fd);
 			ret = select(nfds + 1, &fdsv, &dfds, &efds, &tv);
 		} else {
-			ret = select(udev->uvc_fd + 1, NULL, &dfds, &efds, NULL);
+			ret = select(udev->uvc_fd + 1, NULL, &dfds, &efds, &tv);
 		}
 
 		if (-1 == ret) {
@@ -3489,8 +3551,8 @@ int uvc_gadget_main(int id) {
 		if (0 == ret) {
 			if (udev->bulk)
 				continue;
-			printf("select timeout\n");
-			break;
+			/* Timeout is normal when waiting for USB reconnect. */
+			continue;
 		}
 
 		if (FD_ISSET(udev->uvc_fd, &efds))

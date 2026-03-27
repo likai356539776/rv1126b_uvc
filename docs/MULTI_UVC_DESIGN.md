@@ -1,84 +1,113 @@
-# my_uvc Multi-UVC Design (v2 Plan)
+# my_uvc Multi-UVC Design
 
 ## Goal
 
-Extend current single-channel `my_uvc` to support multiple UVC functions (for example `uvc.gs1`, `uvc.gs2`, `uvc.gs3`) while keeping each channel independently configurable.
+Support multiple UVC functions (`uvc.gs1`, `uvc.gs2`, ...) with each channel independently configurable, and provide resilience against USB cable disconnect/reconnect.
 
-## Current v1 Baseline
+## Architecture Overview
 
-- Single UVC function: `uvc.gs1`
-- Single source: one H.264 file
-- Single stream context in `main.cpp`
+```
+┌──────────────────────────────────────────────────┐
+│  main.cpp                                        │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐  │
+│  │ channel_   │  │ channel_   │  │ stats_     │  │
+│  │ worker[0]  │  │ worker[N]  │  │ worker     │  │
+│  └─────┬──────┘  └─────┬──────┘  └────────────┘  │
+│        │               │                         │
+│  ┌─────▼───────────────▼─────────────────────┐   │
+│  │ third_party/uvc (UVC Gadget core)         │   │
+│  │ ┌──────────────┐  ┌──────────────────────┐│   │
+│  │ │uvc_control_  │  │ uvc_gadget_pthread   ││   │
+│  │ │thread        │  │ ×N (per video_id)    ││   │
+│  │ │ - scan nodes │  │ - select() loop      ││   │
+│  │ │ - add/remove │  │ - events_process     ││   │
+│  │ │ - lifecycle  │  │ - video_process      ││   │
+│  │ └──────┬───────┘  │ - hot-plug survive   ││   │
+│  │        │          └──────────────────────┘│   │
+│  │ ┌──────▼───────┐                          │   │
+│  │ │uevent_stub.c │                          │   │
+│  │ │ - netlink    │                          │   │
+│  │ │ - video4linux│                          │   │
+│  │ │   add/remove │                          │   │
+│  │ └─────────────┘                           │   │
+│  └───────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────┘
+```
 
-## Current v1.2 Status
+## Source File Responsibilities
 
-- Multi-UVC route count is now configurable (`channels` in app and `-n/--channels` in usb script), current upper bound is 16.
-- Supports per-channel independent file/fps overrides:
-  - `channelN_h264_path`
-  - `channelN_fps`
-- Suitable for both enumeration tests and basic independent multi-stream validation.
-- Independent stream on/off behavior has been fixed per channel.
-- Added observability and robustness controls:
-  - `log_level` (error/info/debug)
-  - `stats_enable` + `stats_interval_sec` (per-channel periodic stats)
-  - `startup_prime_frames` (stream-reopen protection by repeating first IDR+SPS/PPS)
+| File | Role |
+|------|------|
+| `src/main.cpp` | Entry point, config parsing, per-channel worker threads, stats thread |
+| `src/app_config.cpp` | INI configuration parsing |
+| `src/pip_mjpeg.cpp` | MJPEG picture-in-picture compositing (libjpeg) |
+| `src/uevent_stub.c` | Netlink uevent monitoring for USB hot-plug detection |
+| `third_party/uvc/uvc_control.c` | UVC control thread: device scanning, lifecycle management |
+| `third_party/uvc/uvc-gadget.c` | V4L2 UVC event loop, buffer management, hot-plug resilience |
+| `third_party/uvc/uvc_video.cpp` | UVC video thread management, run_state control |
+| `third_party/uvc/uvc_encode.c` | Codec format initialization |
 
-## Target v2 Architecture
+## USB Hot-Plug Recovery Design
 
-- `UsbGadgetManager`
-  - Configure multiple UVC functions in configfs
-  - Bind/unbind and report channel to `/dev/videoX` mapping
+### Problem
 
-- `ChannelConfig` (per channel)
-  - `enable`
-  - `format` (initially H.264 only)
-  - `width` / `height`
-  - `fps`
-  - `source_path`
-  - `loop_file`
+On Rockchip gadget platforms, USB cable disconnect does not destroy the `/dev/videoN` device nodes (they are tied to configfs, not USB link state). The UVC kernel driver disables the function but keeps the V4L2 device alive. If old mmap buffers remain mapped when USB reconnects, `VIDIOC_REQBUFS` returns `-EBUSY` and the kernel tears down the entire gadget.
 
-- `ChannelRuntime` (per channel)
-  - NAL/frame index
-  - SPS/PPS cache
-  - host negotiated fps
-  - stream on/off state
-  - statistics
+### Solution: Thread Survival with Immediate Cleanup
 
-- `StreamScheduler`
-  - run one worker thread per channel, or a single loop with per-channel timing
-  - enforce independent frame pacing
+```
+USB disconnect
+    │
+    ▼
+uvc_video_process() → VIDIOC_QBUF returns ENODEV
+    │
+    ▼
+Immediate cleanup:
+  1. VIDIOC_STREAMOFF (may fail, OK)
+  2. munmap() all buffers
+  3. VIDIOC_REQBUFS(0) to release kernel buffers
+  4. is_streaming = 0
+    │
+    ▼
+Thread stays alive in select() with 2s timeout
+    │
+    ▼  (USB cable reconnected)
+    │
+Kernel sends STREAMON event on same fd
+    │
+    ▼
+uvc_handle_streamon_event():
+  1. Release any residual old buffers (safety net)
+  2. VIDIOC_REQBUFS(nbufs) → allocate fresh buffers
+  3. mmap() new buffers
+  4. VIDIOC_STREAMON
+    │
+    ▼
+Streaming resumes automatically
+```
 
-## Key Implementation Points
+### Key Design Decisions
 
-1. **USB config script**
-   - Add options for channel count and per-channel resolution.
-   - Create `uvc.gsN` functions and symlink all into one config.
+1. **Thread does NOT exit on ENODEV** — avoids complex thread recreation and control thread coordination.
+2. **Buffers are released immediately** — prevents `-EBUSY` when USB reconnects.
+3. **`dev->mem` set to NULL after free** — prevents double-free and enables safe re-check.
+4. **`uvc_handle_streamon_event()` always cleans up first** — double safety net for any residual state.
+5. **`select()` uses 2s timeout** — prevents CPU spin during disconnect, still responsive to reconnect events.
 
-2. **UVC control path**
-   - Keep using existing local `third_party/uvc` stack.
-   - Channel ID comes from detected `/dev/videoX`.
+## Completed Milestones
 
-3. **Frame source abstraction**
-   - Replace v1 single source with `IFrameSource` interface:
-     - `FileFrameSource` (existing behavior)
-     - later: `VencFrameSource` (real-time encoder output)
+- M1: Dual-channel same-source streaming ✅
+- M2: Per-channel independent file and fps ✅
+- M3: Stream reopen robustness (startup priming + per-channel stream gate) ✅
+- M4: USB hot-plug recovery (thread survival + buffer cleanup + auto-resume) ✅
 
-4. **Fault isolation**
-   - One channel failure should not stop other channels.
+## Future Milestones
 
-5. **Observability**
-   - Keep per-channel counters (realtime fps, total frames, error count, stream on/off).
-   - Keep edge logs for stream transitions to simplify long-run pressure tests.
-
-## Suggested Milestones (Updated)
-
-- M1: dual-channel file source (`uvc.gs1`, `uvc.gs2`) with same file ✅
-- M2: dual-channel independent files and independent fps ✅
-- M3: stream reopen robustness (startup priming + per-channel stream gate) ✅
-- M4: enrich error telemetry (last error reason + timestamp per channel)
-- M5: migrate one channel to real-time VENC source
+- M5: Error telemetry (per-channel last error reason + timestamp)
+- M6: Real-time VENC source integration (at least one channel)
 
 ## Risks
 
-- Host-side compatibility differs by OS and camera app for multi-UVC enumeration.
-- Bandwidth constraints on USB link when multiple high-bitrate streams run concurrently.
+- Multi-UVC host compatibility varies by OS and camera application.
+- USB2 (480Mbps) bandwidth limits concurrent high-bitrate streams to approximately 4-5 channels.
+- USB hot-plug recovery depends on gadget device nodes persisting across disconnect (Rockchip configfs default behavior).

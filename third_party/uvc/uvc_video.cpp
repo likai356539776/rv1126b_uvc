@@ -377,8 +377,6 @@ void uvc_video_join_uvc_pid(int id) {
 }
 
 static void uvc_gadget_pthread_exit(int id) {
-	while (!uvc_get_user_run_state(id))
-		pthread_yield();
 	uvc_set_user_run_state(false, id);
 	uvc_video_join_uvc_pid(id);
 }

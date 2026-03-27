@@ -5,108 +5,143 @@
 - 项目目录：`/home/kama/workspace/ubuntu20.04/uvc_sigle/my_uvc`
 - 目标平台：RV1126B (aarch64)
 - 主要功能：基于 USB Gadget 的 UVC 多路推流（文件源，支持 H.264 / MJPEG；MJPEG 支持实时画中画 PiP）
-- 当前代码状态：可运行，已支持高路数配置与一键选择 profile
+- 当前代码状态：可运行，已支持高路数配置、一键选择 profile、USB 热拔插恢复
 
-## 2. 当前已完成能力（关键）
+## 2. 项目架构
 
-- 支持 UVC 推流（H.264 / MJPEG），默认配置文件路径为：
-  - `/userdata/my_uvc.ini`
-- 支持多路范围：
-  - 应用侧：`1..16`
-  - USB 配置脚本侧：`1..16`
-- 支持每路独立配置：
-  - `channelN_h264_path`（N=0..15）
-  - `channelN_fps`（N=0..15）
-- 支持 MJPEG 输入源：
-  - 单 `.jpg/.jpeg`
-  - 多 JPEG 拼接文件（按 `0xFFD8` 分帧）
-  - 目录（读取目录下所有 `.jpg/.jpeg`，按文件名排序）
-- 支持 MJPEG 实时画中画（PiP）：
-  - `pip_enable`
-  - `pip_overlay_path`（文件或目录；目录下图片轮播）
-  - `pip_x/pip_y/pip_w/pip_h/pip_jpeg_quality`
-- 支持复开流鲁棒性参数：
-  - `sync_to_idr_on_open`
-  - `inject_sps_pps_on_idr`
-  - `startup_prime_frames`
-- 支持日志与统计：
-  - `log_level`
-  - `stats_enable`
-  - `stats_interval_sec`
-- 提供产品化 profile（独立路）：
-  - `1/2/4/6/8/10/12/16` 路
+```
+my_uvc/
+├── CMakeLists.txt                      # 构建入口
+├── autobuild.sh                        # 一键构建脚本
+├── my_uvc_install_to_device.sh         # 一键部署脚本
+├── cmake/
+│   └── toolchain-rv1126b-buildroot.cmake
+├── config/
+│   ├── my_uvc.ini                      # 主配置模板
+│   └── profiles/                       # 产品 profile（1~16路）
+│       └── my_uvc_{1,2,4,6,8,10,12,16}ch_independent.ini
+├── docs/                               # 文档
+│   ├── README.md                       # 文档总入口
+│   ├── MULTI_UVC_DESIGN.md             # 多路设计（英文）
+│   ├── MULTI_UVC_DESIGN_CN.md          # 多路设计（中文）
+│   ├── TEST_CHECKLIST.md               # 测试清单（英文）
+│   └── TEST_CHECKLIST_CN.md            # 测试清单（中文）
+├── include/
+│   ├── app_config.h                    # 应用配置结构定义
+│   └── pip_mjpeg.h                     # PiP 画中画接口
+├── scripts/
+│   ├── my_uvc_usb_config.sh            # USB gadget 配置脚本
+│   ├── probe_uvc_node_mapping.sh       # UVC 节点映射探测
+│   └── select_profile.sh              # 产品 profile 选择/部署/启动
+├── src/
+│   ├── main.cpp                        # 主入口：参数解析、通道工作线程
+│   ├── app_config.cpp                  # INI 配置解析
+│   ├── pip_mjpeg.cpp                   # MJPEG 画中画合成（libjpeg）
+│   └── uevent_stub.c                   # netlink uevent 监听（USB 热拔插检测）
+└── third_party/uvc/                    # UVC Gadget 核心库（基于 rkipc 本地化）
+    ├── uvc-gadget.c / .h              # V4L2 UVC 设备事件循环、缓冲区管理
+    ├── uvc_control.c / .h             # UVC 控制线程、设备扫描与生命周期
+    ├── uvc_video.cpp / .h             # UVC 视频线程管理、run_state 控制
+    ├── uvc_encode.c / .h              # 编码格式初始化
+    ├── yuv.c / .h                     # YUV 转换辅助
+    └── uevent.h                       # uevent 接口声明
+```
 
-## 3. 关键脚本与参数
+## 3. 当前已完成能力
 
-### 3.1 `scripts/select_profile.sh`
+### 3.1 基础推流
+- UVC 推流（H.264 / MJPEG），配置文件路径 `/userdata/my_uvc.ini`
+- 多路支持：1~16 路，应用侧与 USB 脚本侧均已支持
+- 每路独立配置：`channelN_h264_path`、`channelN_fps`（N=0..15）
 
-- 支持 profile：
-  - `1|2|4|6|8|10|12|16`
-- 关键参数：
-  - `--install`：部署 profile
-  - `--run`：板端自动执行 USB 配置并后台启动 `my_uvc`
-  - `--fps`：USB 配置脚本 fps（`5/10/15/20/25/30`）
-  - `--size`：USB+应用分辨率（`WxH`）
-  - `--adb-serial`：指定设备
-  - `--remote-config`：板端配置路径（默认 `/userdata/my_uvc.ini`）
+### 3.2 MJPEG 帧源
+- 单 `.jpg/.jpeg` 文件
+- 多 JPEG 拼接文件（按 `0xFFD8` 分帧）
+- 目录（读取目录下所有 `.jpg/.jpeg`，按文件名排序）
 
-示例：
+### 3.3 MJPEG 实时画中画（PiP）
+- `pip_enable` / `pip_overlay_path`（文件或目录轮播）
+- `pip_x/pip_y/pip_w/pip_h/pip_jpeg_quality`
+
+### 3.4 复开流鲁棒性
+- `sync_to_idr_on_open` / `inject_sps_pps_on_idr` / `startup_prime_frames`
+
+### 3.5 日志与统计
+- `log_level`（0=error / 1=info / 2=debug）
+- `stats_enable` + `stats_interval_sec`（每路周期统计）
+
+### 3.6 USB 热拔插恢复
+- netlink uevent 监听（`uevent_stub.c`）：检测 `video4linux` 设备增删事件
+- UVC 工作线程原地存活：USB 断开时立即释放缓冲区（munmap + REQBUFS(0)），但线程不退出
+- USB 重连后内核发送新 STREAMON → 线程分配全新缓冲区 → 自动恢复推流
+- `uvc_control_thread` 在设备节点丢失时以 500ms 间隔轮询重新扫描
+- `channel_worker` 支持动态 `video_id` 重映射
+
+### 3.7 产品化 Profile
+- 提供 1/2/4/6/8/10/12/16 路独立配置模板
+- `select_profile.sh` 一键选择、部署、启动
+
+## 4. 关键运行时线程架构
+
+```
+main()
+ ├── uvc_control_thread          # 设备扫描与生命周期（事件驱动）
+ │    └── uvc_gadget_pthread ×N  # 每个 video_id 一个线程（V4L2 事件 + 数据循环）
+ ├── uevent_monitor_thread       # netlink 监听 USB 设备变化
+ ├── channel_worker ×N           # 每路帧数据填充线程
+ └── stats_worker                # 统计输出线程
+```
+
+**USB 热拔插恢复流程：**
+1. USB 断开 → `uvc_gadget_pthread` 遇到 ENODEV → 释放 mmap 缓冲区 → `is_streaming=0`
+2. 线程在 `select()` 中以 2s 超时等待（不退出、不空转）
+3. USB 重连 → 内核在同一设备节点发送 STREAMON → `uvc_handle_streamon_event()` 分配新缓冲区
+4. 推流自动恢复
+
+## 5. 关键脚本
+
+### 5.1 `scripts/select_profile.sh`
 
 ```bash
+# 4路部署并启动
 ./scripts/select_profile.sh 4 --install --run --fps 20 --size 1280x720
+# 16路部署并启动
 ./scripts/select_profile.sh 16 --install --run --fps 10 --size 640x480
 ```
 
-### 3.2 `my_uvc` 可执行参数（常用）
+### 5.2 `my_uvc` 常用参数
 
-- `-c <config>`
-- `--channels`
-- `--file`
-- `--width` / `--height`
-- `--size WxH`（等价于同时设置 width/height）
-- `--fps`
-- `--log-level`
-- `--stats-enable`
-- `--stats-interval`
+- `-c <config>` / `--channels` / `--file` / `--codec`
+- `--width` / `--height` / `--size WxH` / `--fps`
+- `--log-level` / `--stats-enable` / `--stats-interval`
+- `--pip-enable` / `--pip-overlay` / `--pip-x/y/w/h` / `--pip-jpeg-quality`
 - `--startup-prime-frames`
 
-## 4. 关键配置文件
+## 6. 关键配置文件
 
-- 主配置模板：
-  - `config/my_uvc.ini`
-- 产品 profile：
-  - `config/profiles/my_uvc_1ch_independent.ini`
-  - `config/profiles/my_uvc_2ch_independent.ini`
-  - `config/profiles/my_uvc_4ch_independent.ini`
-  - `config/profiles/my_uvc_6ch_independent.ini`
-  - `config/profiles/my_uvc_8ch_independent.ini`
-  - `config/profiles/my_uvc_10ch_independent.ini`
-  - `config/profiles/my_uvc_12ch_independent.ini`
-  - `config/profiles/my_uvc_16ch_independent.ini`
+- 主配置模板：`config/my_uvc.ini`
+- 产品 profile：`config/profiles/my_uvc_{1..16}ch_independent.ini`
 
-## 5. 文档入口
+## 7. 文档入口
 
-- 文档总入口：
-  - `docs/README.md`
-- 测试清单：
-  - `docs/TEST_CHECKLIST.md`
-  - `docs/TEST_CHECKLIST_CN.md`
-- 多路设计：
-  - `docs/MULTI_UVC_DESIGN.md`
-  - `docs/MULTI_UVC_DESIGN_CN.md`
-- 需求文档：
-  - `REQUIREMENTS.md`
+| 文档 | 路径 |
+|------|------|
+| 文档总入口 | `docs/README.md` |
+| 需求文档 | `REQUIREMENTS.md` |
+| 多路设计（EN/CN） | `docs/MULTI_UVC_DESIGN.md` / `docs/MULTI_UVC_DESIGN_CN.md` |
+| 测试清单（EN/CN） | `docs/TEST_CHECKLIST.md` / `docs/TEST_CHECKLIST_CN.md` |
 
-## 6. 已知注意事项
+## 8. 已知注意事项
 
 - 高路数（>=10）对 USB 带宽、主机侧解码能力和调度压力较敏感，建议先降 fps 再逐步上调。
-- `--fps`（USB 协商帧率）与 `my_uvc.ini` 的每路 `channelN_fps` 需要协同配置，避免“协商值与推流节拍不一致”。
-- 若复开流出现 `non-existing PPS`，优先上调 `startup_prime_frames`（建议按 +2 递增）。
-- Buildroot 注意：若板端同时存在 `libjpeg.so.62` 与 `libjpeg.so.8`，PiP 需要链接 `libjpeg.so.8`，否则会报 `Wrong JPEG library version`。
-- USB 拔插注意：若板端存在系统 USB 管理服务（如 `usbdevice` / adbd 组合），拔线时可能出现 `usb_function_activate` 相关 WARN；UVC 调试阶段建议使用 `my_uvc_usb_config.sh ... --stop-system-usb`。
-- **多路 6/7/8 在 PC 上无数据**：板端与 `f_uvc`/应用侧已验证 8 路均在推流；问题集中在 **Host USB2（480M）+ 多路等时 UVC 的资源分配/驱动行为**。DTS 是否仅 HS、能否改 USB3 需单独确认；勿再堆叠用户态“通道映射”实验代码。
+- `--fps`（USB 协商帧率）与 `my_uvc.ini` 的每路 `channelN_fps` 需要协同配置。
+- 若复开流出现 `non-existing PPS`，优先上调 `startup_prime_frames`（按 +2 递增）。
+- Buildroot 注意：若板端同时存在 `libjpeg.so.62` 与 `libjpeg.so.8`，PiP 需要链接 `libjpeg.so.8`。
+- USB 拔插调试建议使用 `my_uvc_usb_config.sh ... --stop-system-usb`，避免系统 USB 服务覆盖。
+- USB 热拔插恢复依赖设备节点在 USB 断开/重连期间保持存在（Rockchip configfs gadget 的默认行为）。
+- 多路 6/7/8 在 USB2（480Mbps）下可能因 Host 带宽/驱动限制无法全部出数据，需确认 DTS 是否支持 USB3 gadget。
 
-## 7. 新会话快速恢复模板（复制可用）
+## 9. 新会话快速恢复模板
 
 ```text
 项目路径：/home/kama/workspace/ubuntu20.04/uvc_sigle/my_uvc
@@ -115,51 +150,7 @@
 1) HANDOVER.md
 2) REQUIREMENTS.md
 3) docs/README.md
-4) docs/TEST_CHECKLIST.md
-5) docs/MULTI_UVC_DESIGN.md
-6) scripts/select_profile.sh
 
 我现在要做的下一步：
-- （在这里写当前目标，例如：调试16路稳定性、优化某一路掉帧问题）
+- （在这里写当前目标）
 ```
-
-## 8. 最近会话参考
-
-- 可参考历史会话：[UVC 多路开发交接](d414471b-c134-4b83-93d0-e0a99b9edfed)
-
-## 9. 会话压缩记录（供下次恢复上下文，2025-03）
-
-### 9.1 现象（已复现）
-
-- **板端**：8 路 `my_uvc` 统计正常（`stream ON`、帧数增长、`errors=0`）；内核 `uvc_function_bind` / `set_alt(…,1)` 对 8 路均出现。
-- **Host（Ubuntu）**：`v4l2-ctl --stream-to` 对 **偶数 video 节点** 对应关系大致为 ch1→`/dev/video2`，ch2→`video4` … ch5→`video10` 有数据；**ch6→`video12`、ch7→`video14`、ch8→`video16` 文件恒为 0 字节**（或长时间无进度需 Ctrl+C）。
-- **路数规律**：**4 路全好**；**6 路仅第 6 路无数据**；**8 路为第 6、7、8 路无数据**。
-- **Host `dmesg`**：抓取 `uvc|video|usb` 时多为空，未见典型 “bandwidth” 报错。
-- **`lsusb -t`**：`my_uvc` 挂在 **Bus 001、480M（USB2 High-Speed）**；物理口为蓝色 USB3 口 ≠ 当前链路速率（需看 SoC/DTS 是否仅 gadget HS）。
-- **降负载**：仅把 USB 脚本 **fps 改为 10**（640×480、8 路）后，**6/7/8 仍无数据** → 单纯“码率减半”不足以解释，更倾向 **Host 对单设备多路等时流的数量/实现限制** 或 **控制器分配策略**。
-
-### 9.2 板端“启动失败”误判（已澄清）
-
-- 日志 `load stream failed for channel 0 (/userdata/ch0.h264)`：**ini 中 H.264 路径文件不存在**；补齐或改路径后进程可常驻。
-- `nohup` 默认写 **`nohup.out`**；建议固定：`nohup … >/userdata/my_uvc.log 2>&1 &`（注意 `2>&1` 勿写成 `2>1`）。
-
-### 9.3 内核调试补丁（SDK 路径，非本仓库）
-
-- 位置：`/home/kama/workspace/ubuntu20.04/rp_rv1126_sdk/kernel-6.1/`
-- 已加日志（便于区分控制面/数据面）：
-  - `drivers/usb/gadget/function/f_uvc.c`：`bind` 时打印 `control/streaming` 接口号与所选 `ep`；`set_alt` 详情；`config_ep_by_speed` / `usb_ep_enable` 失败码。
-  - `drivers/usb/dwc3/gadget.c`：`ep_enable` 失败、`__dwc3_gadget_ep_queue` 拒绝原因（ratelimited）。
-  - `drivers/usb/gadget/function/uvc_video.c`：`usb_ep_queue` 失败与 `complete` 非 0 状态时带 `stream_intf`/`ep`。
-- **当前抓到的现象**：未见 `queue detail` / `complete detail` / `ep_enable failed` 洪水；与板端持续送帧一致。
-
-### 9.4 配置测试约定（带宽实验）
-
-- **可先只改脚本 + `--size`**：`my_uvc_usb_config.sh -w/-h/-p/-n` 与 `my_uvc --size WxH` 对齐即可；`my_uvc.ini` 内 `channelN_fps` 建议最终与协商 fps 一致，但**非快速验证必要条件**。
-- 尚未确认结果：**320×240 @ 10fps、8 路** 是否能让 Host 上 ch6–8 出数据；**换 USB3 线** 在 **gadget 仍为 HS** 时通常不改变 480M 事实，**关键在 DTS/硬件是否 SuperSpeed gadget**。
-
-### 9.5 建议的下一步（给下一会话）
-
-1. Host：`lsusb -v -s <bus:dev> | grep -i bcdUSB` 确认设备报告版本；板端 DTS 查 `dwc3`/USB DRD `maximum-speed`、`dr_mode`。
-2. 跑一轮 **8 路 320×240 @ 10fps**，Host 再测 `video12/14/16`。
-3. 若仍为 0：在 **另一台 PC 或 USB 控制器** 上复现，或接受 **USB2 单口多路 UVC 的工程上限约 5 路**（与当前 4/6/8 规律一致）作为产品规格输入。
-
