@@ -568,14 +568,12 @@ static void _uvc_buffer_write(struct uvc_video *v, unsigned short stamp, void *e
 				case V4L2_PIX_FMT_H264:
 					if (extra_data && extra_size > 0)
 						memcpy(buffer->buffer, extra_data, extra_size);
-					if (extra_size >= 0)
-						memcpy((char *)buffer->buffer + extra_size, data, size);
+					memcpy((char *)buffer->buffer + extra_size, data, size);
 					break;
 				case V4L2_PIX_FMT_HEVC:
 					if (extra_data && extra_size > 0)
 						memcpy(buffer->buffer, extra_data, extra_size);
-					if (extra_size >= 0)
-						memcpy((char *)buffer->buffer + extra_size, data, size);
+					memcpy((char *)buffer->buffer + extra_size, data, size);
 					break;
 				}
 				buffer->size = extra_size + size;

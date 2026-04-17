@@ -231,7 +231,7 @@ void uvc_read_camera_buffer(void *cam_buf, int cam_fd, size_t cam_size, void *ex
                             size_t extra_size) {
 	int i;
 	pthread_mutex_lock(&lock);
-	if (cam_size <= uvc_enc.width * uvc_enc.height * 2) {
+	if (cam_size <= (size_t)uvc_enc.width * (size_t)uvc_enc.height * 2u) {
 		uvc_enc.extra_data = extra_data;
 		uvc_enc.extra_size = extra_size;
 		for (i = 0; i < uvc_ctrl_count; i++) {
@@ -240,7 +240,7 @@ void uvc_read_camera_buffer(void *cam_buf, int cam_fd, size_t cam_size, void *ex
 				uvc_encode_process(&uvc_enc, cam_buf, cam_fd, cam_size);
 		}
 	} else if (uvc_enc.width > 0 && uvc_enc.height > 0) {
-		printf("%s: cam_size = %u, uvc_enc.width = %d, uvc_enc.height = %d\n", __func__, cam_size,
+		printf("%s: cam_size = %zu, uvc_enc.width = %d, uvc_enc.height = %d\n", __func__, cam_size,
 		       uvc_enc.width, uvc_enc.height);
 	}
 	pthread_mutex_unlock(&lock);
@@ -249,14 +249,14 @@ void uvc_read_camera_buffer(void *cam_buf, int cam_fd, size_t cam_size, void *ex
 void uvc_read_camera_buffer_by_id(void *cam_buf, int cam_fd, size_t cam_size, void *extra_data,
                                   size_t extra_size, int video_id) {
 	pthread_mutex_lock(&lock);
-	if (cam_size <= uvc_enc.width * uvc_enc.height * 2) {
+	if (cam_size <= (size_t)uvc_enc.width * (size_t)uvc_enc.height * 2u) {
 		uvc_enc.video_id = video_id;
 		uvc_enc.extra_data = extra_data;
 		uvc_enc.extra_size = extra_size;
 		if (uvc_enc.video_id >= 0)
 			uvc_encode_process(&uvc_enc, cam_buf, cam_fd, cam_size);
 	} else if (uvc_enc.width > 0 && uvc_enc.height > 0) {
-		printf("%s: cam_size = %u, uvc_enc.width = %d, uvc_enc.height = %d\n", __func__, cam_size,
+		printf("%s: cam_size = %zu, uvc_enc.width = %d, uvc_enc.height = %d\n", __func__, cam_size,
 		       uvc_enc.width, uvc_enc.height);
 	}
 	pthread_mutex_unlock(&lock);
@@ -359,8 +359,9 @@ void uvc_control_join(uint32_t flags) {
 		run_flag = false;
 		uvc_control_signal();
 		pthread_join(run_id, NULL);
-		if (flags & UVC_CONTROL_LOOP_ONCE)
-			;
+		if (flags & UVC_CONTROL_LOOP_ONCE) {
+			/* One-shot mode: join already waited for the control thread. */
+		}
 		uvc_video_id_exit_all();
 	}
 }

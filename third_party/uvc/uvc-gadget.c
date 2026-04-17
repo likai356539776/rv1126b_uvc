@@ -62,13 +62,16 @@
 #define clamp(val, min, max)                                                                       \
 	({                                                                                             \
 		typeof(val) __val = (val);                                                                 \
-		typeof(min) __min = (min);                                                                 \
-		typeof(max) __max = (max);                                                                 \
+		typeof(val) __min = (typeof(val))(min);                                                    \
+		typeof(val) __max = (typeof(val))(max);                                                    \
 		(void)(&__val == &__min);                                                                  \
 		(void)(&__val == &__max);                                                                  \
 		__val = __val < __min ? __min : __val;                                                     \
 		__val > __max ? __max : __val;                                                             \
 	})
+
+/* sizeof(...) vs V4L/UVC __s32 length without -Wsign-compare. */
+#define uvc_ctrl_len_ok(sz, len) ((len) >= 0 && (sz) >= (size_t)(len))
 
 #define pixfmtstr(x) (x) & 0xff, ((x) >> 8) & 0xff, ((x) >> 16) & 0xff, ((x) >> 24) & 0xff
 
@@ -192,7 +195,7 @@ struct uvc_format_info {
 	const struct uvc_frame_info *frames;
 };
 
-static const struct uvc_frame_info uvc_frames_yuyv[] = {
+static const struct uvc_frame_info uvc_frames_yuyv[] __attribute__((unused)) = {
     {
         640,
         480,
@@ -212,7 +215,7 @@ static const struct uvc_frame_info uvc_frames_yuyv[] = {
     },
 };
 
-static const struct uvc_frame_info uvc_frames_mjpeg[] = {
+static const struct uvc_frame_info uvc_frames_mjpeg[] __attribute__((unused)) = {
     {
         2688,
         1520,
@@ -252,7 +255,7 @@ static const struct uvc_frame_info uvc_frames_mjpeg[] = {
     },
 };
 
-static const struct uvc_frame_info uvc_frames_h264[] = {
+static const struct uvc_frame_info uvc_frames_h264[] __attribute__((unused)) = {
     {
         2688,
         1520,
@@ -282,7 +285,7 @@ static const struct uvc_frame_info uvc_frames_h264[] = {
     },
 };
 
-static const struct uvc_frame_info uvc_frames_h265[] = {
+static const struct uvc_frame_info uvc_frames_h265[] __attribute__((unused)) = {
     {
         2688,
         1520,
@@ -2548,7 +2551,7 @@ static void uvc_events_process_control(struct uvc_device *dev, uint8_t req, uint
 				break;
 			case UVC_GET_CUR:
 				resp->length = len;
-				if (sizeof(dev->ex_ctrl) >= resp->length)
+				if (uvc_ctrl_len_ok(sizeof(dev->ex_ctrl), resp->length))
 					memcpy(resp->data, dev->ex_ctrl, resp->length);
 				dev->request_error_code.data[0] = 0x00;
 				dev->request_error_code.length = 1;
@@ -2613,7 +2616,7 @@ static void uvc_events_process_control(struct uvc_device *dev, uint8_t req, uint
 				break;
 			case UVC_GET_CUR:
 				resp->length = len;
-				if (sizeof(dev->ex_data) >= resp->length) {
+				if (uvc_ctrl_len_ok(sizeof(dev->ex_data), resp->length)) {
 					// memcpy(resp->data, dev->ex_data, resp->length);
 					// uvc_iq_tool_get_data(dev->ex_ctrl, resp->data, resp->length);
 				}
@@ -2794,7 +2797,7 @@ static int uvc_events_process_control_data(struct uvc_device *dev, uint8_t cs, u
 	case 2:
 		switch (cs) {
 		case UVC_PU_BRIGHTNESS_CONTROL:
-			if (sizeof(dev->brightness_val) >= data->length) {
+			if (uvc_ctrl_len_ok(sizeof(dev->brightness_val), data->length)) {
 				memcpy(&dev->brightness_val, data->data, data->length);
 				// video_record_set_brightness(*val);
 			}
@@ -2822,7 +2825,7 @@ static int uvc_events_process_control_data(struct uvc_device *dev, uint8_t cs, u
 			break;
 		case UVC_PU_CONTRAST_CONTROL:
 			printf("UVC_PU_CONTRAST_CONTROL receive\n");
-			if (sizeof(dev->contrast_val) >= data->length) {
+			if (uvc_ctrl_len_ok(sizeof(dev->contrast_val), data->length)) {
 				memcpy(&dev->contrast_val, data->data, data->length);
 				// video_record_set_time(dev->contrast_val);
 				printf("UVC_PU_CONTRAST_CONTROL: 0x%02x 0x%02x\n", data->data[0], data->data[1]);
@@ -2830,42 +2833,42 @@ static int uvc_events_process_control_data(struct uvc_device *dev, uint8_t cs, u
 			}
 			break;
 		case UVC_PU_HUE_CONTROL:
-			if (sizeof(dev->hue_val) >= data->length) {
+			if (uvc_ctrl_len_ok(sizeof(dev->hue_val), data->length)) {
 				memcpy(&dev->hue_val, data->data, data->length);
 				// video_record_set_hue(*val);
 			}
 			break;
 		case UVC_PU_SATURATION_CONTROL:
-			if (sizeof(dev->saturation_val) >= data->length) {
+			if (uvc_ctrl_len_ok(sizeof(dev->saturation_val), data->length)) {
 				memcpy(&dev->saturation_val, data->data, data->length);
 				// video_record_set_saturation(*val);
 			}
 			break;
 		case UVC_PU_SHARPNESS_CONTROL:
-			if (sizeof(dev->sharpness_val) >= data->length)
+			if (uvc_ctrl_len_ok(sizeof(dev->sharpness_val), data->length))
 				memcpy(&dev->sharpness_val, data->data, data->length);
 			break;
 		case UVC_PU_GAMMA_CONTROL:
-			if (sizeof(dev->gamma_val) >= data->length)
+			if (uvc_ctrl_len_ok(sizeof(dev->gamma_val), data->length))
 				memcpy(&dev->gamma_val, data->data, data->length);
 			break;
 		case UVC_PU_WHITE_BALANCE_TEMPERATURE_CONTROL:
 			/* 0:auto, 1:Daylight 2:fluocrescence 3:cloudysky 4:tungsten */
-			if (sizeof(dev->white_balance_temperature_val) >= data->length) {
+			if (uvc_ctrl_len_ok(sizeof(dev->white_balance_temperature_val), data->length)) {
 				memcpy(&dev->white_balance_temperature_val, data->data, data->length);
 				// api_set_white_balance(*val / 51);
 			}
 			break;
 		case UVC_PU_GAIN_CONTROL:
-			if (sizeof(dev->gain_val) >= data->length)
+			if (uvc_ctrl_len_ok(sizeof(dev->gain_val), data->length))
 				memcpy(&dev->gain_val, data->data, data->length);
 			break;
 		case UVC_PU_HUE_AUTO_CONTROL:
-			if (sizeof(dev->hue_auto_val) >= data->length)
+			if (uvc_ctrl_len_ok(sizeof(dev->hue_auto_val), data->length))
 				memcpy(&dev->hue_auto_val, data->data, data->length);
 			break;
 		case UVC_PU_POWER_LINE_FREQUENCY_CONTROL:
-			if (sizeof(dev->power_line_frequency_val) >= data->length) {
+			if (uvc_ctrl_len_ok(sizeof(dev->power_line_frequency_val), data->length)) {
 				memcpy(&dev->power_line_frequency_val, data->data, data->length);
 				// video_record_set_power_line_frequency(*val);
 			}
@@ -2879,14 +2882,14 @@ static int uvc_events_process_control_data(struct uvc_device *dev, uint8_t cs, u
 	case 6:
 		switch (cs) {
 		case 1:
-			if (sizeof(dev->extension_io_data) >= data->length) {
+			if (uvc_ctrl_len_ok(sizeof(dev->extension_io_data), data->length)) {
 				memcpy(dev->extension_io_data, data->data, data->length);
 				printf("extension ctrl 1 set cur data: 0x%02x\n", dev->extension_io_data[0]);
 			}
 			break;
 
 		case 2:
-			if (sizeof(dev->ex_ctrl) >= data->length) {
+			if (uvc_ctrl_len_ok(sizeof(dev->ex_ctrl), data->length)) {
 				memcpy(dev->ex_ctrl, data->data, data->length);
 				printf("extension control: 0x%02x 0x%02x 0x%02x\n", dev->ex_ctrl[0],
 				       dev->ex_ctrl[1], dev->ex_ctrl[2]);
@@ -2896,7 +2899,7 @@ static int uvc_events_process_control_data(struct uvc_device *dev, uint8_t cs, u
 			break;
 
 		case 3:
-			if (sizeof(dev->ex_data) >= data->length) {
+			if (uvc_ctrl_len_ok(sizeof(dev->ex_data), data->length)) {
 				memcpy(dev->ex_data, data->data, data->length);
 				// uvc_iq_tool_set_data(data->data, data->length);
 				printf("extension data: 0x%02x 0x%02x\n", dev->ex_data[0], dev->ex_data[1]);
@@ -2954,7 +2957,7 @@ static int uvc_events_process_data(struct uvc_device *dev, struct uvc_request_da
 	// - 这是一种标准化的UVC协议交互方式，确保兼容性
 	// - 实际格式参数(如分辨率、帧率等)都定义在 uvc_formats 数组中
 	ctrl = (struct uvc_streaming_control *)&data->data;
-	iformat = clamp((unsigned int)ctrl->bFormatIndex, 1U, uvc_formats_count);
+	iformat = clamp((unsigned int)ctrl->bFormatIndex, 1U, (unsigned int)uvc_formats_count);
 	format = &uvc_formats[iformat - 1];
 
 	UVC_TRACE("uvc_events_process_data bFormatIndex=%d bFrameIndex=%d iformat=%d video_id=%d\n",

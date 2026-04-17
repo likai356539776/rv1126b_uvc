@@ -85,7 +85,7 @@ std::string to_lower_ascii(std::string s) {
 	return s;
 }
 
-bool load_first_jpeg_from_dir(const std::string &dir, std::vector<uint8_t> *jpeg) {
+[[maybe_unused]] bool load_first_jpeg_from_dir(const std::string &dir, std::vector<uint8_t> *jpeg) {
 	if (!jpeg)
 		return false;
 	jpeg->clear();
@@ -118,7 +118,7 @@ bool load_first_jpeg_from_dir(const std::string &dir, std::vector<uint8_t> *jpeg
 	return true;
 }
 
-bool load_jpegs_from_dir(const std::string &dir, std::vector<std::vector<uint8_t>> *jpegs) {
+[[maybe_unused]] bool load_jpegs_from_dir(const std::string &dir, std::vector<std::vector<uint8_t>> *jpegs) {
 	if (!jpegs)
 		return false;
 	jpegs->clear();

@@ -59,11 +59,10 @@ void uvc_encode_exit(struct uvc_encode *e) {
 }
 
 bool uvc_encode_process(struct uvc_encode *e, void *virt, int fd, size_t size) {
-	int ret = 0;
 	unsigned int fcc;
 	int width, height;
-	int jpeg_quant;
-	void *hnd = NULL;
+
+	(void)fd;
 
 	if (!uvc_get_user_run_state(e->video_id) || !uvc_buffer_write_enable(e->video_id))
 		return false;
