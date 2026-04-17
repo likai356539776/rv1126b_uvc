@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstdint>
 #include <cstring>
 
 extern "C" {
@@ -293,7 +294,7 @@ static bool decode_jpeg(PipHwContext *c,
 	}
 	mpp_packet_set_buffer(pkt, c->dec_input_buf);
 
-	int max_tries = 4;
+	int max_tries = 12;
 	for (int attempt = 0; attempt < max_tries; attempt++) {
 		MppFrame frame = NULL;
 
@@ -317,6 +318,26 @@ static bool decode_jpeg(PipHwContext *c,
 			HW_LOG("dec info_change: %ux%u stride %ux%u buf_size %u",
 			       width, height, hor_stride, ver_stride, buf_size);
 
+			/*
+			 * MJPEG decoder info_change: mpp_frame_get_buf_size can be smaller
+			 * than the internal buf_slot pool (observed RV1126: 3760128 vs
+			 * mpp_buf_slot size_total 4177920 = +102 * 4KiB pages). Under-size
+			 * limit_config triggers mismatch / unstable decode when PiP loads
+			 * the pipeline.
+			 */
+			const uint64_t page = 4096u;
+			const uint64_t extra_pages = 102u;
+			uint64_t need = static_cast<uint64_t>(buf_size);
+			const uint64_t min_nv12 = static_cast<uint64_t>(hor_stride)
+				* static_cast<uint64_t>(ver_stride) * 3u / 2u;
+			if (min_nv12 > need)
+				need = min_nv12;
+			uint64_t pages = (need + page - 1u) / page + extra_pages;
+			const size_t lim = static_cast<size_t>(pages * page);
+
+			HW_LOG("dec buffer pool limit_config size %zu (buf_size %u)",
+			       lim, buf_size);
+
 			if (c->dec_frm_grp) {
 				mpp_buffer_group_put(c->dec_frm_grp);
 				c->dec_frm_grp = NULL;
@@ -332,8 +353,7 @@ static bool decode_jpeg(PipHwContext *c,
 				return false;
 			}
 
-			ret = mpp_buffer_group_limit_config(c->dec_frm_grp,
-			                                    buf_size, 24);
+			ret = mpp_buffer_group_limit_config(c->dec_frm_grp, lim, 24);
 			if (ret != MPP_OK) {
 				HW_LOG("dec buffer group limit_config failed: %d", ret);
 				mpp_frame_deinit(&frame);

@@ -48,6 +48,7 @@
 
 //#include "process/video.h"
 #include "uvc-gadget.h"
+#include "uvc_video.h"
 //#include "uvc_iq_tool.h"
 
 /* Enable debug prints. */
@@ -1199,8 +1200,18 @@ static int uvc_video_process(struct uvc_device *dev) {
 
 		/* Dequeue the spent buffer from UVC domain */
 		ret = ioctl(dev->uvc_fd, VIDIOC_DQBUF, &dev->ubuf);
-		if (ret < 0)
+		if (ret < 0) {
+			if (errno == ENODEV) {
+				printf("%d: UVC: VIDIOC_DQBUF ENODEV, clearing app buffers\n",
+				       dev->video_id);
+				uvc_buffer_deinit(dev->video_id);
+				dev->is_streaming = 0;
+				dev->first_buffer_queued = 0;
+				dev->dqbuf_count = 0;
+				dev->qbuf_count = 0;
+			}
 			return ret;
+		}
 
 		if (dev->io == IO_METHOD_USERPTR)
 			for (i = 0; i < dev->nbufs; ++i)
@@ -1258,6 +1269,7 @@ disconnect_cleanup:
 		uvc_uninit_device(dev);
 		uvc_video_reqbufs(dev, 0);
 	}
+	uvc_buffer_deinit(dev->video_id);
 	dev->is_streaming = 0;
 	dev->first_buffer_queued = 0;
 	dev->dqbuf_count = 0;
@@ -3017,8 +3029,22 @@ static int uvc_events_process_data(struct uvc_device *dev, struct uvc_request_da
 	}
 
 	if (dev->control == UVC_VS_COMMIT_CONTROL) {
-		if (uvc_video_get_uvc_process(dev->video_id))
-			return 0;
+		/*
+		 * Old behaviour: return immediately whenever uvc_process was true.
+		 * That skips uvc_buffer_init on the next COMMIT after USB unplug or
+		 * other paths that clear gadget buffers but leave uvc_process set,
+		 * which breaks streaming until a full STREAMOFF/COMMIT cycle.
+		 * Only skip init when the host repeats the same format we already act on.
+		 */
+		if (uvc_video_get_uvc_process(dev->video_id)) {
+			int uw = 0, uh = 0;
+
+			uvc_get_user_resolution(&uw, &uh, dev->video_id);
+			if (uw == (int)frame->width && uh == (int)frame->height &&
+			    uvc_get_user_fcc(dev->video_id) == format->fcc)
+				return 0;
+			uvc_buffer_deinit(dev->video_id);
+		}
 		dev->fcc = format->fcc;
 		dev->width = frame->width;
 		dev->height = frame->height;
@@ -3116,6 +3142,7 @@ static void uvc_events_process(struct uvc_device *dev) {
 					uvc_uninit_device(dev);
 					uvc_video_reqbufs(dev, 0);
 				}
+				uvc_buffer_deinit(dev->video_id);
 				dev->is_streaming = 0;
 				dev->first_buffer_queued = 0;
 				dev->dqbuf_count = 0;
