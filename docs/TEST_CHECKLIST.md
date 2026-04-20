@@ -9,6 +9,7 @@
 - Quick build helper (recommended):
   - `./autobuild.sh --release`
   - `./autobuild.sh --debug --clean`
+  - Cross clean + Debug: `./autobuild.sh -c -d` (same as `--clean --debug`)
   - `./autobuild.sh --release --jobs 8 --install`
   - multi-device: `./autobuild.sh --release --install --adb-serial <serial>`
 - Verify target:

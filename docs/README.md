@@ -13,13 +13,21 @@
 
 ## 2) Quick Start
 
-### Build (host)
+### Cross-build (RV1126, `cmake/toolchain-rv1126b-buildroot.cmake`)
+
+`./autobuild.sh` 始终使用该工具链交叉编译，产出在 `build-rv1126b/`。
 
 ```bash
-# Release
 ./autobuild.sh --release
-# Debug
-./autobuild.sh --debug
+./autobuild.sh -c -d
+```
+
+（`-c` = `--clean` 先删构建目录；`-d` = `--debug`；`-c -d` 即「清理后 Debug 交叉编译」。）
+
+### Host unit tests（无 sysroot）
+
+```bash
+./scripts/run_unit_tests_host.sh
 ```
 
 ### Deploy profile (host → board)

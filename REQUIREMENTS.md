@@ -103,6 +103,7 @@ my_uvc/
 ```bash
 ./autobuild.sh --release
 ./autobuild.sh --debug --clean
+./autobuild.sh -c -d
 ./autobuild.sh --release --install
 ./scripts/select_profile.sh 4 --install --run --fps 20 --size 1280x720
 ```

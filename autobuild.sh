@@ -10,6 +10,7 @@ set -euo pipefail
 #   ./autobuild.sh --clean            # clean build directory first, then build
 #   ./autobuild.sh --clean --debug    # clean + Debug build
 #   ./autobuild.sh -c --release       # clean + Release build
+#   ./autobuild.sh -c -d              # cross (RV1126): clean + Debug build
 #   ./autobuild.sh --install          # Build then run deploy script
 #   ./autobuild.sh --install --adb-serial <serial>
 #   ./autobuild.sh --install --config config/profiles/my_uvc_4ch_independent.ini

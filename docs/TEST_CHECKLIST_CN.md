@@ -9,6 +9,7 @@
 - 快速构建（推荐）：
   - `./autobuild.sh --release`
   - `./autobuild.sh --debug --clean`
+  - 交叉编译清理后 Debug：`./autobuild.sh -c -d`（同 `--clean --debug`）
   - `./autobuild.sh --release --jobs 8 --install`
   - 多设备：`./autobuild.sh --release --install --adb-serial <serial>`
 - 验证：`file build-rv1126b/uvctest` 应显示 `aarch64`
