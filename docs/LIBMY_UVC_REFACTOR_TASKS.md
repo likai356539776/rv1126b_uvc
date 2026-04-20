@@ -203,7 +203,7 @@ P0 ──► P1（libmy_uvc.so）──► P2（uvctest）
 
 | 文件 | 测试 ID |
 |------|---------|
-| `tests/unit/test_app_config_ini_merge.cpp` | P0-T2 补测 |
+| `tests/unit/test_app_config_ini_merge.cpp` | P0-T2 |
 | `tests/unit/test_my_uvc_config_mapping.cpp` | P1-U1 |
 | `tests/unit/test_my_uvc_submit_errors.cpp` | P1-U2 |
 | `tests/unit/test_my_uvc_channel_video_stub.cpp` | P1-U3（可选） |

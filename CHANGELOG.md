@@ -11,6 +11,8 @@ All notable changes to this project are documented here. The format is informal;
 
 ### Tooling / integration
 
+- **P0-T2**: **`test_app_config_ini_merge`** — 宿主机断言目录合并（`libmy_uvc.ini` → `libmy_uvc_pip.ini` → `uvctest.ini`）、同区段后文件覆盖、`my_uvc.ini` 回退、非法键拒收；集成脚本 **`tests/integration/board_config_directory_load_smoke.sh`**（默认跑 CTest；`board` 检查 `/userdata` 下分文件）。已纳入 **`scripts/run_unit_tests_host.sh`**。
+
 - **uvctest CLI**: `--pip-enable 0` is no longer overridden by later `--pip-overlay` / `--pip-*` (previously `merge_cli_into_config` and `parse_cli` forced `pip_enable=true` when overlay was set). Unit test extended in **`test_uvctest_cli_overrides_ini`**.
 
 - **P4-T1**: `load_app_config_section_from_file()` in `app_config` — merge a single ini applying only one `[section]`; tests `test_my_uvc_ini_section_loader` + `tests/integration/board_ini_loader_parity_smoke.sh`. **`my_uvc_load_ini_section_only()`** in `my_uvc.h` / `src/core/my_uvc_load_ini_section_c.cpp` (C ABI on `libmy_uvc`); unit test `test_my_uvc_load_ini_section_c_api`. Submit path uses `my_uvc_resolve_video_id_for_submit()` + test hook `my_uvc_test_set_video_id_hook()` in `src/core/my_uvc_video_id_resolve.cpp` (**P1-U3** / `test_my_uvc_channel_video_stub`).

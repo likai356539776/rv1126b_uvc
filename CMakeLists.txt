@@ -159,6 +159,14 @@ if(MY_UVC_ENABLE_UNIT_TESTS AND NOT CMAKE_CROSSCOMPILING)
 	target_compile_options(test_app_config_path_directory_vs_file PRIVATE -Wall -Wextra)
 	add_test(NAME test_app_config_path_directory_vs_file COMMAND test_app_config_path_directory_vs_file)
 
+	add_executable(test_app_config_ini_merge
+		tests/unit/test_app_config_ini_merge.cpp
+		src/app_config.cpp
+	)
+	target_include_directories(test_app_config_ini_merge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+	target_compile_options(test_app_config_ini_merge PRIVATE -Wall -Wextra)
+	add_test(NAME test_app_config_ini_merge COMMAND test_app_config_ini_merge)
+
 	add_executable(test_pip_tile_layout_rects tests/unit/test_pip_tile_layout_rects.cpp)
 	target_include_directories(test_pip_tile_layout_rects PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 	target_compile_options(test_pip_tile_layout_rects PRIVATE -Wall -Wextra)
