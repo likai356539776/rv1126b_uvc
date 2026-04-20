@@ -41,6 +41,11 @@ typedef enum my_uvc_err {
 typedef int (*my_uvc_on_open_fn)(void *user, int width, int height, int fcc, int fps);
 typedef void (*my_uvc_on_close_fn)(void *user);
 
+/**
+ * Runtime config for the shared library.
+ * INI keys live under **[libmy_uvc]** in ``config/libmy_uvc.ini``; the C++ mirror is
+ * **LibmyUvcIniFields** (`app_config.h`, member `AppConfig::libmy_uvc`) used by `uvctest`.
+ */
 typedef struct my_uvc_config {
 	int channels;
 	int width;

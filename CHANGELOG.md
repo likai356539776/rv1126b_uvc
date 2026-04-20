@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format is informal;
 
 ## [Unreleased]
 
+### AppConfig (P2-T3)
+
+- **`AppConfig`** 拆为 **`libmy_uvc`**（`LibmyUvcIniFields`）、**`libmy_uvc_pip`**（`LibmyUvcPipIniFields`）、**`uvctest`**（`UvctestIniFields`），与 **`config/libmy_uvc.ini` / `libmy_uvc_pip.ini` / `uvctest.ini`** 一一对应；`app_config.cpp` 与各消费者已迁命名成员。说明见 **`config/README_CONFIG.md`**；**`my_uvc.h`** / **`pip_helper.h`** / **`uvctest_cli.hpp`** 补充交叉引用。
+
 ### Configuration
 
 - PiP overlay window defaults: **`pip_w`×`pip_h` = 640×480**（左上角小窗分辨率；`default_app_config()`、profiles、文档与板端集成脚本 CLI 已对齐）。

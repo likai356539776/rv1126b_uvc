@@ -1,5 +1,8 @@
 /*
  * libmy_uvc_pip_helper — MJPEG PiP compose (RGA/MPP + software JPEG). Does not link libmy_uvc.
+ *
+ * INI: **LibmyUvcPipIniFields** in `app_config.h` (`AppConfig::libmy_uvc_pip`) maps **[libmy_uvc_pip]**
+ * in ``config/libmy_uvc_pip.ini``; canvas **width/height** come from **[libmy_uvc]** (``libmy_uvc.ini``).
  */
 #ifndef MY_UVC_PIP_HELPER_H
 #define MY_UVC_PIP_HELPER_H

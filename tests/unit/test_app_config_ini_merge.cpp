@@ -60,19 +60,20 @@ stats_interval_sec = 12
 	if (!load_app_config(root.string(), &cfg, &err))
 		return false;
 
-	if (cfg.channels != 2 || cfg.width != 1280 || cfg.height != 720)
+	if (cfg.libmy_uvc.channels != 2 || cfg.libmy_uvc.width != 1280 || cfg.libmy_uvc.height != 720)
 		return false;
-	if (cfg.fps != 24 || cfg.idle_sleep_ms != 15)
+	if (cfg.libmy_uvc.fps != 24 || cfg.libmy_uvc.idle_sleep_ms != 15)
 		return false;
-	if (cfg.video_codec != "h264")
+	if (cfg.libmy_uvc.video_codec != "h264")
 		return false;
-	if (cfg.h264_path != "/data/stream/ch0.h264" || cfg.log_every_frames != 77)
+	if (cfg.uvctest.h264_path != "/data/stream/ch0.h264" || cfg.uvctest.log_every_frames != 77)
 		return false;
-	if (cfg.stats_interval_sec != 12)
+	if (cfg.uvctest.stats_interval_sec != 12)
 		return false;
-	if (!cfg.pip_enable || cfg.pip_x != 100 || cfg.pip_y != 80 || cfg.pip_w != 400 || cfg.pip_h != 300)
+	if (!cfg.libmy_uvc_pip.pip_enable || cfg.libmy_uvc_pip.pip_x != 100 || cfg.libmy_uvc_pip.pip_y != 80 ||
+	    cfg.libmy_uvc_pip.pip_w != 400 || cfg.libmy_uvc_pip.pip_h != 300)
 		return false;
-	if (cfg.pip_jpeg_quality != 77 || cfg.pip_overlay_path != "/tmp/bg_p0t2.jpg")
+	if (cfg.libmy_uvc_pip.pip_jpeg_quality != 77 || cfg.libmy_uvc_pip.pip_overlay_path != "/tmp/bg_p0t2.jpg")
 		return false;
 
 	fs::remove_all(root);
@@ -114,9 +115,9 @@ h264_path = /override/path.h264
 	std::string err;
 	if (!load_app_config(root.string(), &cfg, &err))
 		return false;
-	if (cfg.channels != 6)
+	if (cfg.libmy_uvc.channels != 6)
 		return false;
-	if (cfg.h264_path != "/override/path.h264")
+	if (cfg.uvctest.h264_path != "/override/path.h264")
 		return false;
 
 	fs::remove_all(root);
@@ -155,13 +156,13 @@ pip_overlay_path = /legacy/o.jpg
 	std::string err;
 	if (!load_app_config(root.string(), &cfg, &err))
 		return false;
-	if (cfg.channels != 1 || cfg.width != 800 || cfg.height != 600)
+	if (cfg.libmy_uvc.channels != 1 || cfg.libmy_uvc.width != 800 || cfg.libmy_uvc.height != 600)
 		return false;
-	if (cfg.video_codec != "mjpeg" || cfg.fps != 20)
+	if (cfg.libmy_uvc.video_codec != "mjpeg" || cfg.libmy_uvc.fps != 20)
 		return false;
-	if (cfg.h264_path != "/legacy/clip.h264" || cfg.log_every_frames != 33)
+	if (cfg.uvctest.h264_path != "/legacy/clip.h264" || cfg.uvctest.log_every_frames != 33)
 		return false;
-	if (!cfg.pip_enable || cfg.pip_x != 5)
+	if (!cfg.libmy_uvc_pip.pip_enable || cfg.libmy_uvc_pip.pip_x != 5)
 		return false;
 
 	fs::remove_all(root);

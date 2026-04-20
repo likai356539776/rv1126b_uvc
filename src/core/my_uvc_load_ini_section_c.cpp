@@ -23,10 +23,10 @@ extern "C" MY_UVC_API my_uvc_err_t my_uvc_load_ini_section_only(const char *path
 	}
 
 	std::memset(out, 0, sizeof(*out));
-	out->channels = cfg.channels;
-	out->width = cfg.width;
-	out->height = cfg.height;
-	out->is_mjpeg = (cfg.video_codec == "mjpeg") ? 1 : 0;
+	out->channels = cfg.libmy_uvc.channels;
+	out->width = cfg.libmy_uvc.width;
+	out->height = cfg.libmy_uvc.height;
+	out->is_mjpeg = (cfg.libmy_uvc.video_codec == "mjpeg") ? 1 : 0;
 	out->on_open = on_open;
 	out->on_close = on_close;
 	out->user_data = user_data;

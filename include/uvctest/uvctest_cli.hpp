@@ -4,6 +4,8 @@
 
 #include <string>
 
+/** CLI + merged ini: **`AppConfig::uvctest`** holds **[uvctest]** keys (`config/uvctest.ini`); **`libmy_uvc` / `libmy_uvc_pip`** are updated by flags that mirror those ini keys. */
+
 namespace uvctest {
 
 enum class CliParseResult {

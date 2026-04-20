@@ -675,19 +675,24 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 
-	g_log_level.store(cfg.log_level);
+	g_log_level.store(cfg.libmy_uvc.log_level);
 
 	log_msg(LOG_INFO,
 	        "config: codec=%s file=%s channels=%d width=%d height=%d fps=%d loop=%d prefer_host_fps=%d "
 	        "sync_to_idr_on_open=%d inject_sps_pps_on_idr=%d log_every_frames=%d idle_sleep_ms=%d "
 	        "startup_prime_frames=%d log_level=%d stats_enable=%d stats_interval_sec=%d",
-	        cfg.video_codec.c_str(), cfg.h264_path.c_str(), cfg.channels, cfg.width, cfg.height, cfg.fps,
-	        cfg.loop_file ? 1 : 0, cfg.prefer_host_fps ? 1 : 0, cfg.sync_to_idr_on_open ? 1 : 0,
-	        cfg.inject_sps_pps_on_idr ? 1 : 0, cfg.log_every_frames, cfg.idle_sleep_ms,
-	        cfg.startup_prime_frames, cfg.log_level, cfg.stats_enable ? 1 : 0, cfg.stats_interval_sec);
-	if (cfg.pip_enable)
-		log_msg(LOG_INFO, "config: pip=1 overlay=%s rect=%dx%d@%d,%d quality=%d", cfg.pip_overlay_path.c_str(),
-		        cfg.pip_w, cfg.pip_h, cfg.pip_x, cfg.pip_y, cfg.pip_jpeg_quality);
+	        cfg.libmy_uvc.video_codec.c_str(), cfg.uvctest.h264_path.c_str(), cfg.libmy_uvc.channels,
+	        cfg.libmy_uvc.width, cfg.libmy_uvc.height, cfg.libmy_uvc.fps,
+	        cfg.libmy_uvc.loop_file ? 1 : 0, cfg.libmy_uvc.prefer_host_fps ? 1 : 0,
+	        cfg.libmy_uvc.sync_to_idr_on_open ? 1 : 0,
+	        cfg.libmy_uvc.inject_sps_pps_on_idr ? 1 : 0, cfg.uvctest.log_every_frames, cfg.libmy_uvc.idle_sleep_ms,
+	        cfg.libmy_uvc.startup_prime_frames, cfg.libmy_uvc.log_level, cfg.uvctest.stats_enable ? 1 : 0,
+	        cfg.uvctest.stats_interval_sec);
+	if (cfg.libmy_uvc_pip.pip_enable)
+		log_msg(LOG_INFO, "config: pip=1 overlay=%s rect=%dx%d@%d,%d quality=%d",
+		        cfg.libmy_uvc_pip.pip_overlay_path.c_str(),
+		        cfg.libmy_uvc_pip.pip_w, cfg.libmy_uvc_pip.pip_h, cfg.libmy_uvc_pip.pip_x, cfg.libmy_uvc_pip.pip_y,
+		        cfg.libmy_uvc_pip.pip_jpeg_quality);
 	log_msg(LOG_DEBUG, "pip_helper: %s", pip_helper_version());
 
 	/*
@@ -714,30 +719,31 @@ int main(int argc, char **argv) {
 
 	std::vector<StreamChannelContext> channels;
 	std::vector<std::shared_ptr<ChannelStats>> stats_list;
-	channels.reserve(static_cast<size_t>(cfg.channels));
-	stats_list.reserve(static_cast<size_t>(cfg.channels));
-	for (int i = 0; i < cfg.channels; i++) {
+	channels.reserve(static_cast<size_t>(cfg.libmy_uvc.channels));
+	stats_list.reserve(static_cast<size_t>(cfg.libmy_uvc.channels));
+	for (int i = 0; i < cfg.libmy_uvc.channels; i++) {
 		StreamChannelContext ch{};
 		ch.channel_id = i;
 		ch.video_id = my_uvc_channel_video_id(i);
-		ch.width = cfg.width;
-		ch.height = cfg.height;
-		ch.fps = cfg.channel_fps[i] > 0 ? cfg.channel_fps[i] : cfg.fps;
-		ch.loop_file = cfg.loop_file;
-		ch.sync_to_idr_on_open = cfg.sync_to_idr_on_open;
-		ch.inject_sps_pps_on_idr = cfg.inject_sps_pps_on_idr;
-		ch.startup_prime_frames = cfg.startup_prime_frames;
-		ch.log_every_frames = cfg.log_every_frames;
-		ch.idle_sleep_ms = cfg.idle_sleep_ms;
-		ch.mjpeg_mode = (cfg.video_codec == "mjpeg");
-		ch.pip_enable = cfg.pip_enable;
-		ch.pip_overlay_path = cfg.pip_overlay_path;
-		ch.pip_x = cfg.pip_x;
-		ch.pip_y = cfg.pip_y;
-		ch.pip_w = cfg.pip_w;
-		ch.pip_h = cfg.pip_h;
-		ch.pip_jpeg_quality = cfg.pip_jpeg_quality;
-		ch.h264_path = cfg.channel_h264_path[i].empty() ? cfg.h264_path : cfg.channel_h264_path[i];
+		ch.width = cfg.libmy_uvc.width;
+		ch.height = cfg.libmy_uvc.height;
+		ch.fps = cfg.uvctest.channel_fps[i] > 0 ? cfg.uvctest.channel_fps[i] : cfg.libmy_uvc.fps;
+		ch.loop_file = cfg.libmy_uvc.loop_file;
+		ch.sync_to_idr_on_open = cfg.libmy_uvc.sync_to_idr_on_open;
+		ch.inject_sps_pps_on_idr = cfg.libmy_uvc.inject_sps_pps_on_idr;
+		ch.startup_prime_frames = cfg.libmy_uvc.startup_prime_frames;
+		ch.log_every_frames = cfg.uvctest.log_every_frames;
+		ch.idle_sleep_ms = cfg.libmy_uvc.idle_sleep_ms;
+		ch.mjpeg_mode = (cfg.libmy_uvc.video_codec == "mjpeg");
+		ch.pip_enable = cfg.libmy_uvc_pip.pip_enable;
+		ch.pip_overlay_path = cfg.libmy_uvc_pip.pip_overlay_path;
+		ch.pip_x = cfg.libmy_uvc_pip.pip_x;
+		ch.pip_y = cfg.libmy_uvc_pip.pip_y;
+		ch.pip_w = cfg.libmy_uvc_pip.pip_w;
+		ch.pip_h = cfg.libmy_uvc_pip.pip_h;
+		ch.pip_jpeg_quality = cfg.libmy_uvc_pip.pip_jpeg_quality;
+		ch.h264_path =
+		    cfg.uvctest.channel_h264_path[i].empty() ? cfg.uvctest.h264_path : cfg.uvctest.channel_h264_path[i];
 		auto stats = std::make_shared<ChannelStats>();
 		stats->channel_id = i;
 		stats->video_id = ch.video_id;
@@ -774,8 +780,8 @@ int main(int argc, char **argv) {
 	workers.reserve(channels.size());
 	for (auto &ch : channels)
 		workers.emplace_back(channel_worker, ch);
-	if (cfg.stats_enable)
-		stats_thread = std::thread(stats_worker, stats_list, cfg.stats_interval_sec);
+	if (cfg.uvctest.stats_enable)
+		stats_thread = std::thread(stats_worker, stats_list, cfg.uvctest.stats_interval_sec);
 
 	for (auto &t : workers)
 		t.join();

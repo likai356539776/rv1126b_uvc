@@ -13,10 +13,10 @@ static void dummy_close(void *) {}
 int main()
 {
 	AppConfig app = default_app_config();
-	app.channels = 4;
-	app.width = 1280;
-	app.height = 720;
-	app.video_codec = "h264";
+	app.libmy_uvc.channels = 4;
+	app.libmy_uvc.width = 1280;
+	app.libmy_uvc.height = 720;
+	app.libmy_uvc.video_codec = "h264";
 
 	my_uvc_config_t out{};
 	uvctest_fill_my_uvc_config(app, dummy_open, dummy_close, reinterpret_cast<void *>(0x1), &out);
@@ -26,14 +26,14 @@ int main()
 	if (out.on_open != dummy_open || out.on_close != dummy_close || out.user_data != reinterpret_cast<void *>(0x1))
 		return 1;
 
-	app.video_codec = "mjpeg";
+	app.libmy_uvc.video_codec = "mjpeg";
 	uvctest_fill_my_uvc_config(app, nullptr, nullptr, nullptr, &out);
 	if (out.is_mjpeg != 1)
 		return 1;
 
-	app.channels = MY_UVC_MAX_CHANNELS;
-	app.width = 1920;
-	app.height = 1080;
+	app.libmy_uvc.channels = MY_UVC_MAX_CHANNELS;
+	app.libmy_uvc.width = 1920;
+	app.libmy_uvc.height = 1080;
 	uvctest_fill_my_uvc_config(app, nullptr, nullptr, nullptr, &out);
 	if (out.channels != MY_UVC_MAX_CHANNELS)
 		return 1;

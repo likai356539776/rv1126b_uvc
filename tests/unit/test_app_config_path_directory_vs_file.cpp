@@ -21,20 +21,22 @@ static int write_file(const fs::path &p, const char *text)
 
 static int cmp_key_fields(const AppConfig &a, const AppConfig &b)
 {
-	if (a.channels != b.channels || a.width != b.width || a.height != b.height || a.fps != b.fps)
+	if (a.libmy_uvc.channels != b.libmy_uvc.channels || a.libmy_uvc.width != b.libmy_uvc.width ||
+	    a.libmy_uvc.height != b.libmy_uvc.height || a.libmy_uvc.fps != b.libmy_uvc.fps)
 		return 1;
-	if (a.video_codec != b.video_codec)
+	if (a.libmy_uvc.video_codec != b.libmy_uvc.video_codec)
 		return 1;
-	if (a.h264_path != b.h264_path)
+	if (a.uvctest.h264_path != b.uvctest.h264_path)
 		return 1;
-	if (a.idle_sleep_ms != b.idle_sleep_ms)
+	if (a.libmy_uvc.idle_sleep_ms != b.libmy_uvc.idle_sleep_ms)
 		return 1;
-	if (a.log_every_frames != b.log_every_frames)
+	if (a.uvctest.log_every_frames != b.uvctest.log_every_frames)
 		return 1;
-	if (a.pip_enable != b.pip_enable || a.pip_x != b.pip_x || a.pip_y != b.pip_y || a.pip_w != b.pip_w ||
-	    a.pip_h != b.pip_h || a.pip_jpeg_quality != b.pip_jpeg_quality)
+	if (a.libmy_uvc_pip.pip_enable != b.libmy_uvc_pip.pip_enable || a.libmy_uvc_pip.pip_x != b.libmy_uvc_pip.pip_x ||
+	    a.libmy_uvc_pip.pip_y != b.libmy_uvc_pip.pip_y || a.libmy_uvc_pip.pip_w != b.libmy_uvc_pip.pip_w ||
+	    a.libmy_uvc_pip.pip_h != b.libmy_uvc_pip.pip_h || a.libmy_uvc_pip.pip_jpeg_quality != b.libmy_uvc_pip.pip_jpeg_quality)
 		return 1;
-	if (a.pip_overlay_path != b.pip_overlay_path)
+	if (a.libmy_uvc_pip.pip_overlay_path != b.libmy_uvc_pip.pip_overlay_path)
 		return 1;
 	return 0;
 }

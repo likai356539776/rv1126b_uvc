@@ -58,11 +58,11 @@ fps = 25
 	if (!uvctest::validate_config(&cfg, &err))
 		return 1;
 
-	if (cfg.channels != 4)
+	if (cfg.libmy_uvc.channels != 4)
 		return 1;
-	if (cfg.video_codec != "mjpeg")
+	if (cfg.libmy_uvc.video_codec != "mjpeg")
 		return 1;
-	if (cfg.width != 1920 || cfg.height != 1080)
+	if (cfg.libmy_uvc.width != 1920 || cfg.libmy_uvc.height != 1080)
 		return 1;
 
 	std::error_code ec;
@@ -81,13 +81,13 @@ fps = 25
 		uvctest::CliState cli{};
 		if (uvctest::parse_cli(static_cast<int>(av.size()), av.data(), &cli) != uvctest::CliParseResult::Ok)
 			return 2;
-		if (cli.cli_cfg.pip_enable)
+		if (cli.cli_cfg.libmy_uvc_pip.pip_enable)
 			return 3;
 		AppConfig cfg = default_app_config();
-		cfg.pip_enable = true;
-		cfg.pip_overlay_path = "/userdata/pip_logo.jpg";
+		cfg.libmy_uvc_pip.pip_enable = true;
+		cfg.libmy_uvc_pip.pip_overlay_path = "/userdata/pip_logo.jpg";
 		uvctest::merge_cli_into_config(&cfg, cli);
-		if (cfg.pip_enable)
+		if (cfg.libmy_uvc_pip.pip_enable)
 			return 4;
 		std::string verr;
 		if (!uvctest::validate_config(&cfg, &verr))

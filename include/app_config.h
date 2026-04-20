@@ -6,12 +6,15 @@
 
 constexpr int kMaxUvcChannels = 16;
 
-struct AppConfig {
+/**
+ * [libmy_uvc] — UVC 栈与编码尺寸、H.264 策略、库侧日志。
+ * 物理配置见 config/libmy_uvc.ini；与 C API my_uvc_config_t 的映射见 uvctest_fill_my_uvc_config()、my_uvc_load_ini_section_only(..., "libmy_uvc", ...)。
+ */
+struct LibmyUvcIniFields {
 	int channels;
 	int width;
 	int height;
 	int fps;
-	int log_every_frames;
 	int idle_sleep_ms;
 	bool loop_file;
 	bool prefer_host_fps;
@@ -19,12 +22,15 @@ struct AppConfig {
 	bool inject_sps_pps_on_idr;
 	int startup_prime_frames;
 	int log_level;
-	bool stats_enable;
-	int stats_interval_sec;
 	/** "h264" | "mjpeg" — must match my_uvc_usb_config.sh -f (H.264 / MJPEG). */
 	std::string video_codec;
-	std::string h264_path;
-	/** MJPEG only: real-time picture-in-picture (requires libjpeg at link time). */
+};
+
+/**
+ * [libmy_uvc_pip] — PiP 合成（静态库 pip_helper），与 include/my_uvc_pip/pip_helper.h / config/libmy_uvc_pip.ini 一致。
+ * libmy_uvc.so 不包含 PiP；应用链接 pip_helper 时使用这些字段填 pip_helper_config_t。
+ */
+struct LibmyUvcPipIniFields {
 	bool pip_enable;
 	std::string pip_overlay_path;
 	int pip_x;
@@ -32,8 +38,29 @@ struct AppConfig {
 	int pip_w;
 	int pip_h;
 	int pip_jpeg_quality;
+};
+
+/**
+ * [uvctest] — 测试程序专用：媒体路径、周期日志、统计、逐路覆盖；见 config/uvctest.ini。
+ * 不随 libmy_uvc.so 发布；仅 uvctest / load_app_config 使用。
+ */
+struct UvctestIniFields {
+	int log_every_frames;
+	bool stats_enable;
+	int stats_interval_sec;
+	std::string h264_path;
 	std::array<int, kMaxUvcChannels> channel_fps;
 	std::array<std::string, kMaxUvcChannels> channel_h264_path;
+};
+
+/**
+ * 合并后的应用配置：目录模式下按 libmy_uvc.ini → libmy_uvc_pip.ini → uvctest.ini 叠加；
+ * 单文件 legacy 仍为 [my_uvc] 全键。各段含义见上方三结构体。
+ */
+struct AppConfig {
+	LibmyUvcIniFields libmy_uvc{};
+	LibmyUvcPipIniFields libmy_uvc_pip{};
+	UvctestIniFields uvctest{};
 };
 
 AppConfig default_app_config();

@@ -29,30 +29,31 @@ static int write_file(const fs::path &p, const char *text)
 
 static void fill_pip_helper_from_app(const AppConfig &app, pip_helper_config_t *out)
 {
-	out->pip_enable = app.pip_enable ? 1 : 0;
-	out->canvas_width = app.width;
-	out->canvas_height = app.height;
-	out->pip_x = app.pip_x;
-	out->pip_y = app.pip_y;
-	out->pip_w = app.pip_w;
-	out->pip_h = app.pip_h;
-	out->pip_jpeg_quality = app.pip_jpeg_quality;
-	out->pip_overlay_path = app.pip_overlay_path.c_str();
+	out->pip_enable = app.libmy_uvc_pip.pip_enable ? 1 : 0;
+	out->canvas_width = app.libmy_uvc.width;
+	out->canvas_height = app.libmy_uvc.height;
+	out->pip_x = app.libmy_uvc_pip.pip_x;
+	out->pip_y = app.libmy_uvc_pip.pip_y;
+	out->pip_w = app.libmy_uvc_pip.pip_w;
+	out->pip_h = app.libmy_uvc_pip.pip_h;
+	out->pip_jpeg_quality = app.libmy_uvc_pip.pip_jpeg_quality;
+	out->pip_overlay_path = app.libmy_uvc_pip.pip_overlay_path.c_str();
 }
 
 static int check_default_pip_fields(const AppConfig &cfg)
 {
-	if (cfg.pip_enable != false)
+	if (cfg.libmy_uvc_pip.pip_enable != false)
 		return 1;
-	if (!cfg.pip_overlay_path.empty())
+	if (!cfg.libmy_uvc_pip.pip_overlay_path.empty())
 		return 1;
-	if (cfg.pip_x != kDefPipX || cfg.pip_y != kDefPipY || cfg.pip_w != kDefPipW || cfg.pip_h != kDefPipH)
+	if (cfg.libmy_uvc_pip.pip_x != kDefPipX || cfg.libmy_uvc_pip.pip_y != kDefPipY ||
+	    cfg.libmy_uvc_pip.pip_w != kDefPipW || cfg.libmy_uvc_pip.pip_h != kDefPipH)
 		return 1;
-	if (cfg.pip_jpeg_quality != kDefPipJpegQ)
+	if (cfg.libmy_uvc_pip.pip_jpeg_quality != kDefPipJpegQ)
 		return 1;
 	pip_helper_config_t p{};
 	fill_pip_helper_from_app(cfg, &p);
-	if (p.pip_enable != 0 || p.canvas_width != cfg.width || p.canvas_height != cfg.height)
+	if (p.pip_enable != 0 || p.canvas_width != cfg.libmy_uvc.width || p.canvas_height != cfg.libmy_uvc.height)
 		return 1;
 	if (p.pip_x != kDefPipX || p.pip_y != kDefPipY || p.pip_w != kDefPipW || p.pip_h != kDefPipH)
 		return 1;
@@ -85,7 +86,7 @@ video_codec = mjpeg
 	AppConfig merged{};
 	if (!load_app_config(root.string(), &merged, &err))
 		return 1;
-	if (merged.width != 1280 || merged.height != 720)
+	if (merged.libmy_uvc.width != 1280 || merged.libmy_uvc.height != 720)
 		return 1;
 	if (check_default_pip_fields(merged))
 		return 1;

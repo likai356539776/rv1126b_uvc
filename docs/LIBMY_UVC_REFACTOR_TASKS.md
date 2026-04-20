@@ -85,7 +85,7 @@
 |---------|--------|------|--------|
 | **P2-T1** | 目录调整：`src/uvctest/main.cpp`（或 `src/main.cpp` 迁移），`add_executable(uvctest …)`，链接 `libmy_uvc` + `libmy_uvc_pip_helper`（pip 可先空实现，见阶段 3） | P1 | 可执行文件 `uvctest` |
 | **P2-T2** | 将原 `main` 中送帧路径改为 **`my_uvc_submit_*`**，删除对 vendor 符号的直接依赖（仅经库） | P2-T1 | 源码边界清晰 |
-| **P2-T3** | `app_config.cpp` 仅被 `uvctest` 编译；**可选** 拆 `MyUvcConfig` / `PipHelperConfig` / `UvctestConfig` | P2-T1 | 与三 ini 区段一致 |
+| **P2-T3** | `AppConfig` 拆为 **`LibmyUvcIniFields` / `LibmyUvcPipIniFields` / `UvctestIniFields`**（`app_config.h`）；各模块头文件交叉引用 ini 职责 | 完成 | 与三 ini 区段一致；见 `config/README_CONFIG.md` §「C++ 中的区段类型」 |
 | **P2-T4** | **安装**：`uvctest` → `bin`（**无** `my_uvc` 兼容链接；与 §3.9 一致） | P2-T1 | 符合 §3.9 |
 | **P2-T5** | 更新 `my_uvc_install_to_device.sh`：推送 `libmy_uvc.so`、`uvctest`、头文件与 config | P2-T4 | 板端路径正确 |
 | **P2-T6** | 文档：`docs/README.md` 中命令示例 **仅** **`uvctest`** | P2-T4 | — |

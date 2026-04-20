@@ -9,6 +9,16 @@
 | `uvctest.ini` | `[uvctest]` | 测试/应用侧：媒体文件路径、`channelN_*` 覆盖、发送日志周期、统计开关与周期。 |
 | `my_uvc.ini` | `[my_uvc]` | **兼容旧部署**的单文件，键与过去一致；仍可用 `-c /path/to/my_uvc.ini` 单独指定。 |
 
+## C++ 中的区段类型（P2-T3）
+
+合并后的 **`AppConfig`**（`include/app_config.h`）由三个子结构组成，与上表一一对应，便于各模块在头文件内自解释 ini 归属：
+
+| 成员 | 结构体类型 | 区段 / 文件 |
+|------|------------|-------------|
+| `libmy_uvc` | `LibmyUvcIniFields` | `[libmy_uvc]` / `libmy_uvc.ini` — 与 `my_uvc_config_t`、`my_uvc.h` 说明一致 |
+| `libmy_uvc_pip` | `LibmyUvcPipIniFields` | `[libmy_uvc_pip]` / `libmy_uvc_pip.ini` — 与 `pip_helper_config_t`、`pip_helper.h` 一致 |
+| `uvctest` | `UvctestIniFields` | `[uvctest]` / `uvctest.ini` — 仅 `uvctest` 可执行文件使用 |
+
 ## 加载方式
 
 - 传入 **目录**（例如 `-c /userdata`）：依次合并  
