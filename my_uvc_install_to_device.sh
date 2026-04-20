@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 # -----------------------------------------------------------------------------
 # my_uvc 一键部署脚本
 # 用途:
@@ -11,8 +13,8 @@ set -euo pipefail
 #   - 可执行程序部署到: /usr/bin
 #   - 配置文件部署到:   /userdata
 #
-# 后续如新增产物(例如多路配置文件/额外脚本/资源文件)，请在
-# "Deploy artifacts" 区域追加对应 adb push 即可。
+# 默认推送拆分配置: libmy_uvc.ini, libmy_uvc_pip.ini, uvctest.ini, my_uvc.ini（见 config/README_CONFIG.md）
+# 后续如新增产物，请在 "Deploy artifacts" 区域追加 adb push。
 # -----------------------------------------------------------------------------
 
 # Optional target device serial.
@@ -22,7 +24,9 @@ set -euo pipefail
 # If neither is provided, adb runs without -s (default behavior).
 ADB_SERIAL_ENV="${ADB_SERIAL:-}"
 ADB_SERIAL_ARG=""
-LOCAL_CONFIG_PATH="config/my_uvc.ini"
+LOCAL_CONFIG_DIR="${PROJECT_DIR}/config"
+DEPLOY_SINGLE_INI=0
+LOCAL_CONFIG_PATH="${LOCAL_CONFIG_DIR}/my_uvc.ini"
 REMOTE_CONFIG_PATH="/userdata/my_uvc.ini"
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -31,9 +35,15 @@ while [[ $# -gt 0 ]]; do
 		ADB_SERIAL_ARG="$2"
 		shift 2
 		;;
+	--config-dir)
+		[[ $# -ge 2 ]] || { echo "Missing value for --config-dir"; exit 1; }
+		LOCAL_CONFIG_DIR="$2"
+		shift 2
+		;;
 	--config)
 		[[ $# -ge 2 ]] || { echo "Missing value for --config"; exit 1; }
 		LOCAL_CONFIG_PATH="$2"
+		DEPLOY_SINGLE_INI=1
 		shift 2
 		;;
 	--remote-config)
@@ -42,14 +52,16 @@ while [[ $# -gt 0 ]]; do
 		shift 2
 		;;
 	-h|--help)
-		echo "Usage: $0 [--adb-serial <serial>] [--config <local_ini>] [--remote-config <remote_ini_path>]"
-		echo "  --config         Local config file to deploy (default: config/my_uvc.ini)"
-		echo "  --remote-config  Target config path on device (default: /userdata/my_uvc.ini)"
+		echo "Usage: $0 [--adb-serial <serial>] [--config-dir <dir>] [--config <local_ini> --remote-config <remote>]"
+		echo "  Default: push split configs from config/: libmy_uvc.ini, libmy_uvc_pip.ini, uvctest.ini, my_uvc.ini -> /userdata/"
+		echo "  --config-dir     Local directory containing ini files (default: <project>/config)"
+		echo "  --config         Deploy a single local ini file (use with --remote-config)"
+		echo "  --remote-config  Remote path when using --config (default: /userdata/my_uvc.ini)"
 		exit 0
 		;;
 	*)
 		echo "Unknown option: $1"
-		echo "Usage: $0 [--adb-serial <serial>] [--config <local_ini>] [--remote-config <remote_ini_path>]"
+		echo "Usage: $0 [--adb-serial <serial>] [--config-dir <dir>] [--config <local_ini> --remote-config <remote>]"
 		exit 1
 		;;
 	esac
@@ -57,9 +69,16 @@ done
 
 ADB_SERIAL_FINAL="${ADB_SERIAL_ARG:-$ADB_SERIAL_ENV}"
 
-if [[ ! -f "${LOCAL_CONFIG_PATH}" ]]; then
-	echo "[my_uvc_install] Config file not found: ${LOCAL_CONFIG_PATH}"
-	exit 1
+if [[ "${DEPLOY_SINGLE_INI}" -eq 1 ]]; then
+	if [[ ! -f "${LOCAL_CONFIG_PATH}" ]]; then
+		echo "[my_uvc_install] Config file not found: ${LOCAL_CONFIG_PATH}"
+		exit 1
+	fi
+else
+	if [[ ! -d "${LOCAL_CONFIG_DIR}" ]]; then
+		echo "[my_uvc_install] Config directory not found: ${LOCAL_CONFIG_DIR}"
+		exit 1
+	fi
 fi
 
 adb_exec() {
@@ -75,22 +94,38 @@ if [[ -n "${ADB_SERIAL_FINAL}" ]]; then
 else
 	echo "[my_uvc_install] Using default adb target (no ADB_SERIAL specified)"
 fi
-echo "[my_uvc_install] Local config: ${LOCAL_CONFIG_PATH}"
-echo "[my_uvc_install] Remote config: ${REMOTE_CONFIG_PATH}"
+if [[ "${DEPLOY_SINGLE_INI}" -eq 1 ]]; then
+	echo "[my_uvc_install] Local config file: ${LOCAL_CONFIG_PATH}"
+	echo "[my_uvc_install] Remote config file: ${REMOTE_CONFIG_PATH}"
+else
+	echo "[my_uvc_install] Local config dir: ${LOCAL_CONFIG_DIR} -> /userdata/*.ini"
+fi
 
-# Deploy artifacts: executable + usb config script + runtime config.
-adb_exec push build-rv1126b/my_uvc /usr/bin/
-adb_exec push scripts/my_uvc_usb_config.sh /usr/bin/
-adb_exec push "${LOCAL_CONFIG_PATH}" "${REMOTE_CONFIG_PATH}"
+# Deploy artifacts: primary binary `uvctest`, shared lib, usb script, configs.
+adb_exec push "${PROJECT_DIR}/build-rv1126b/uvctest" /usr/bin/
+adb_exec push "${PROJECT_DIR}/build-rv1126b/libmy_uvc.so.1.0.0" /usr/lib/
+adb_exec shell ln -sf libmy_uvc.so.1.0.0 /usr/lib/libmy_uvc.so.1
+adb_exec shell ln -sf libmy_uvc.so.1 /usr/lib/libmy_uvc.so
+adb_exec push "${PROJECT_DIR}/scripts/my_uvc_usb_config.sh" /usr/bin/
+if [[ "${DEPLOY_SINGLE_INI}" -eq 1 ]]; then
+	adb_exec push "${LOCAL_CONFIG_PATH}" "${REMOTE_CONFIG_PATH}"
+	adb_exec shell chmod 666 "${REMOTE_CONFIG_PATH}"
+else
+	for f in libmy_uvc.ini libmy_uvc_pip.ini uvctest.ini my_uvc.ini; do
+		if [[ -f "${LOCAL_CONFIG_DIR}/${f}" ]]; then
+			echo "[my_uvc_install] push ${f} -> /userdata/${f}"
+			adb_exec push "${LOCAL_CONFIG_DIR}/${f}" "/userdata/${f}"
+			adb_exec shell chmod 666 "/userdata/${f}"
+		fi
+	done
+fi
 
-# Set permissions on target board.
-adb_exec shell chmod +x /usr/bin/my_uvc
+adb_exec shell chmod +x /usr/bin/uvctest
 adb_exec shell chmod +x /usr/bin/my_uvc_usb_config.sh
-adb_exec shell chmod 666 "${REMOTE_CONFIG_PATH}"
 
 echo "[my_uvc_install] Deploy finished."
 
 # Quick sanity checks on target board.
 echo "[my_uvc_install] Verify binary and script versions on target:"
-adb_exec shell "/usr/bin/my_uvc --help || true"
+adb_exec shell "/usr/bin/uvctest --help || true"
 adb_exec shell "/usr/bin/my_uvc_usb_config.sh --help || true"

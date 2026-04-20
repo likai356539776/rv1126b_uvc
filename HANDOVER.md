@@ -57,16 +57,32 @@
 - 文档：
   - `docs/README.md`
 
-## 4) 运行/验证最小命令
+## 4) 安装布局（libmy_uvc / uvctest）
+
+- **CMake `install`**：`bin/uvctest`、`lib/libmy_uvc.so*`（SONAME `libmy_uvc.so.1`）、`lib/libmy_uvc_pip_helper.a`、`include/my_uvc/`（**稳定 C ABI**，如 `my_uvc.h`）、`include/my_uvc_pip/`、`share/` 下分文件配置模板。
+- **应用入口名**：板端与文档均以 **`uvctest`** 为准（**不再**安装 `/usr/bin/my_uvc` 符号链接；旧脚本请改为 `uvctest` / `pkill -f uvctest`）。
+- **推送**：`my_uvc_install_to_device.sh` 将上述产物同步到板端常用路径（与 `docs/README.md` 一致）。
+- **第三方只链 `libmy_uvc.so` 时**：可用 **`my_uvc_load_ini_section_only(path, section, …)`**（声明于 `include/my_uvc/my_uvc.h`）从**单个 ini 文件**中只合并一个 `[section]`（如 `libmy_uvc`），得到 `my_uvc_config_t` 再 `my_uvc_create`。区段名与分文件配置对应关系见 `config/README_CONFIG.md`。宿主机/CI 不编全量 `.so` 时仍可用 `scripts/run_unit_tests_host.sh` 中的 `test_my_uvc_load_ini_section_c_api` 验证解析与映射。
+
+### 板端 / SDK 自检（可选）
+
+1. 交叉编译产出目录 `$BUILD` 下执行：  
+   `tests/integration/check_libmy_uvc_soname_exports.sh "$BUILD"`  
+   脚本会**要求**动态符号表中出现 **`my_uvc_load_ini_section_only`**（与 `my_uvc_create` 等一同导出）。
+2. 设备已部署且 `adb` 可用时：  
+   `tests/integration/doc_deploy_walkthrough_smoke.sh board`  
+   检查 `/usr/bin/uvctest`、`libmy_uvc.so` / `/userdata` 下拆分 ini 是否齐全（详见脚本内说明）。
+
+## 5) 运行/验证最小命令
 
 ```bash
-# 1) USB gadget（示例：单路 MJPEG 640x480@25）
-my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 1 --stop-system-usb
+# 1) USB gadget（示例：单路 MJPEG 1920x1080@25）
+my_uvc_usb_config.sh -f MJPEG -w 1920 -h 1080 -p 25 -n 1 --stop-system-usb
 
 # 2) 启动应用
-my_uvc -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir \
+uvctest -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir \
   --pip-enable 1 --pip-overlay /userdata/mjpeg_overlay \
-  --pip-x 20 --pip-y 20 --pip-w 160 --pip-h 120 --pip-jpeg-quality 85
+  --pip-x 20 --pip-y 20 --pip-w 640 --pip-h 480 --pip-jpeg-quality 85
 
 # 3) 查看协商日志（简版）
 grep "\[uvc\] commit" /userdata/my_uvc_pip.log
@@ -75,13 +91,13 @@ grep "\[uvc\] commit" /userdata/my_uvc_pip.log
 export MY_UVC_NEGO=1
 ```
 
-## 5) 已知风险/注意事项
+## 6) 已知风险/注意事项
 
 - 多路（特别 6/8 路）在 USB2 下可能受主机带宽/调度限制，出现“后几路无图”。
 - 需要协同调参：`channels`、`fps`、`dwMaxVideoFrameBufferSize`（脚本已提供自动策略和手动覆盖）。
 - 若出现 `rc_model_v2 alloc_bits` 断言，已在 `mpp_jpeg.cpp` 中将 MJPEG 编码显式设为 FIXQP+RC 基础参数，需确保部署的是新二进制。
 
-## 6) 下次会话建议起步
+## 7) 下次会话建议起步
 
 1. 先读：`HANDOVER.md`、`docs/README.md`、`config/my_uvc.ini`
 2. 优先复核板端实际生效内容：

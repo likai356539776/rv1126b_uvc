@@ -15,7 +15,8 @@ compile_commands.json
 *.so
 *.so.*
 *.out
-my_uvc
+# Root build artifact only; do not match include/my_uvc/ public headers
+/my_uvc
 
 # Temporary / editor files
 *.swp

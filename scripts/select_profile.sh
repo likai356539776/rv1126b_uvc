@@ -28,8 +28,8 @@ DO_INSTALL=0
 DO_RUN=0
 ADB_SERIAL_VALUE=""
 USB_FPS=25
-USB_WIDTH=640
-USB_HEIGHT=480
+USB_WIDTH=1920
+USB_HEIGHT=1080
 # UVC format: H.264 (default) or MJPEG — same as rkipc rkipc_usb_config.sh -f
 USB_FORMAT="H.264"
 MY_UVC_CODEC="h264"
@@ -43,8 +43,8 @@ print_usage() {
 	echo "  --run               Run board startup flow after selection/deploy"
 	echo "  --run-mode          Run mode for --run: adb (default) or serial-safe"
 	echo "  --fps               USB config fps used with --run (default: 25)"
-	echo "  --size              USB config resolution used with --run, e.g. 640x480"
-	echo "  --codec             h264 (default) or mjpeg — passed to usb script -f and my_uvc --codec"
+	echo "  --size              USB config resolution used with --run, e.g. 1920x1080"
+	echo "  --codec             h264 (default) or mjpeg — passed to usb script -f and uvctest --codec"
 	echo "  --stop-system-usb   Add --stop-system-usb when running my_uvc_usb_config.sh"
 	echo "  --adb-serial        Optional adb serial passed to install script"
 	echo "  --remote-config     Target path on board (default: /userdata/my_uvc.ini)"
@@ -91,7 +91,7 @@ while [[ $# -gt 0 ]]; do
 		[[ $# -ge 2 ]] || { echo "Missing value for --size"; exit 1; }
 		SIZE_VAL="$2"
 		if [[ ! "${SIZE_VAL}" =~ ^([0-9]+)x([0-9]+)$ ]]; then
-			echo "Invalid --size format: ${SIZE_VAL}. Use WxH, e.g. 640x480"
+			echo "Invalid --size format: ${SIZE_VAL}. Use WxH, e.g. 1920x1080"
 			exit 1
 		fi
 		USB_WIDTH="${BASH_REMATCH[1]}"
@@ -219,14 +219,14 @@ echo "[select_profile] Local config: ${LOCAL_CONFIG_PATH}"
 echo "[select_profile] Remote config: ${REMOTE_CONFIG_PATH}"
 echo "[select_profile] USB fps: ${USB_FPS}"
 echo "[select_profile] USB size: ${USB_WIDTH}x${USB_HEIGHT}"
-echo "[select_profile] USB format: ${USB_FORMAT} (my_uvc --codec ${MY_UVC_CODEC})"
+echo "[select_profile] USB format: ${USB_FORMAT} (uvctest --codec ${MY_UVC_CODEC})"
 echo "[select_profile] Run mode: ${RUN_MODE}"
 if [[ ${#USB_EXTRA_ARGS[@]} -gt 0 ]]; then
 	echo "[select_profile] USB extra args: ${USB_EXTRA_ARGS[*]}"
 fi
 echo "[select_profile] Suggested board commands:"
 echo "  my_uvc_usb_config.sh -f ${USB_FORMAT} -w ${USB_WIDTH} -h ${USB_HEIGHT} -p ${USB_FPS} -n ${USB_CHANNELS} --verbose ${USB_EXTRA_ARGS[*]}"
-echo "  my_uvc -c ${REMOTE_CONFIG_PATH} --codec ${MY_UVC_CODEC} --size ${USB_WIDTH}x${USB_HEIGHT}"
+echo "  uvctest -c ${REMOTE_CONFIG_PATH} --codec ${MY_UVC_CODEC} --size ${USB_WIDTH}x${USB_HEIGHT}"
 echo "[select_profile] Suggested host commands:"
 echo "  v4l2-ctl --list-devices"
 if [[ "${MY_UVC_CODEC}" == "mjpeg" ]]; then
@@ -263,14 +263,14 @@ if [[ ${DO_RUN} -eq 1 ]]; then
 		echo "[select_profile] serial-safe mode: skip adb auto-run."
 		echo "[select_profile] Please run on board serial/local shell:"
 		echo "  ${USB_CONFIG_CMD}"
-		echo "  pkill -f '/usr/bin/my_uvc -c ${REMOTE_CONFIG_PATH}' || true"
-		echo "  nohup /usr/bin/my_uvc -c ${REMOTE_CONFIG_PATH} --codec ${MY_UVC_CODEC} --size ${USB_WIDTH}x${USB_HEIGHT} >/userdata/my_uvc.log 2>&1 &"
+		echo "  pkill -f '/usr/bin/uvctest -c ${REMOTE_CONFIG_PATH}' || true"
+		echo "  nohup /usr/bin/uvctest -c ${REMOTE_CONFIG_PATH} --codec ${MY_UVC_CODEC} --size ${USB_WIDTH}x${USB_HEIGHT} >/userdata/my_uvc.log 2>&1 &"
 		echo "  tail -f /userdata/my_uvc.log"
 	else
 		echo "[select_profile] Running board startup flow via adb..."
 		adb_exec shell "${USB_CONFIG_CMD}"
-		adb_exec shell "pkill -f '/usr/bin/my_uvc -c ${REMOTE_CONFIG_PATH}' || true"
-		adb_exec shell "nohup /usr/bin/my_uvc -c ${REMOTE_CONFIG_PATH} --codec ${MY_UVC_CODEC} --size ${USB_WIDTH}x${USB_HEIGHT} >/userdata/my_uvc.log 2>&1 &"
+		adb_exec shell "pkill -f '/usr/bin/uvctest -c ${REMOTE_CONFIG_PATH}' || true"
+		adb_exec shell "nohup /usr/bin/uvctest -c ${REMOTE_CONFIG_PATH} --codec ${MY_UVC_CODEC} --size ${USB_WIDTH}x${USB_HEIGHT} >/userdata/my_uvc.log 2>&1 &"
 		echo "[select_profile] Board startup done."
 		echo "[select_profile] Check board log: adb shell tail -f /userdata/my_uvc.log"
 	fi

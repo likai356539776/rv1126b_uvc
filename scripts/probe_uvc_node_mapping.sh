@@ -17,8 +17,8 @@ set -euo pipefail
 ADB_SERIAL=""
 BOARD_LOG="/userdata/my_uvc.log"
 VIDEO_GLOB="/dev/video*"
-WIDTH=640
-HEIGHT=480
+WIDTH=1920
+HEIGHT=1080
 PIXEL_FORMAT="H264"
 STREAM_COUNT=1
 TIMEOUT_SEC=3
@@ -31,7 +31,7 @@ usage() {
 	echo "Options:"
 	echo "  --adb-serial <serial>     adb 设备序列号"
 	echo "  --board-log <path>        板端日志路径 (default: /userdata/my_uvc.log)"
-	echo "  --size <WxH>              采样分辨率 (default: 640x480)"
+	echo "  --size <WxH>              采样分辨率 (default: 1920x1080)"
 	echo "  --pixfmt <fmt>            V4L2 像素格式 (default: H264)"
 	echo "  --stream-count <N>        每个节点抓取帧数 (default: 1)"
 	echo "  --timeout <sec>           每个节点超时秒数 (default: 3)"
@@ -40,7 +40,7 @@ usage() {
 	echo "  --help                    显示帮助"
 	echo ""
 	echo "Example:"
-	echo "  $0 --size 640x480 --pixfmt H264"
+	echo "  $0 --size 1920x1080 --pixfmt H264"
 }
 
 adb_exec() {

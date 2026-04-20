@@ -1,0 +1,21 @@
+# P5-T4: Host CTest — no Rockchip sysroot (MY_UVC_ENABLE_UNIT_TESTS).
+# Repository root is `my_uvc` (jobs run in checkout root; do not set working-directory to `my_uvc`).
+name: my_uvc unit tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host-ctest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build libjpeg-dev build-essential
+
+      - name: Run host unit tests
+        run: ./scripts/run_unit_tests_host.sh

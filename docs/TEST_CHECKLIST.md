@@ -12,7 +12,7 @@
   - `./autobuild.sh --release --jobs 8 --install`
   - multi-device: `./autobuild.sh --release --install --adb-serial <serial>`
 - Verify target:
-  - `file build-rv1126b/my_uvc` should be `aarch64`
+  - `file build-rv1126b/uvctest` should be `aarch64`
 
 ## 2) Deploy Check (Board)
 
@@ -32,29 +32,29 @@
 ## 3) USB Gadget Check (Board)
 
 - Run:
-  - H.264: `my_uvc_usb_config.sh -f H.264 -w 640 -h 480 -p 25 -n 1 --verbose`
-  - MJPEG: `my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 1 --verbose`
+  - H.264: `my_uvc_usb_config.sh -f H.264 -w 1920 -h 1080 -p 25 -n 1 --verbose`
+  - MJPEG: `my_uvc_usb_config.sh -f MJPEG -w 1920 -h 1080 -p 25 -n 1 --verbose`
   - if system `usbdevice` service rewrites gadget, append `--stop-system-usb`
   - for USB hot-plug tests, always use `--stop-system-usb`
 - Verify logs:
   - `final UDC state` is non-empty
-  - `Configured UVC ... 640x480 ...` appears
+  - `Configured UVC ... 1920x1080 ...` appears
 
 ## 4) Stream Check (Board + Host)
 
 - Board:
-  - H.264: `my_uvc -c /userdata/my_uvc.ini --codec h264`
-  - MJPEG: `my_uvc -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir`
-  - MJPEG + PiP: `my_uvc -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir --pip-enable 1 --pip-overlay /userdata/mjpeg_overlay --pip-x 20 --pip-y 20 --pip-w 160 --pip-h 120 --pip-jpeg-quality 85`
+  - H.264: `uvctest -c /userdata/my_uvc.ini --codec h264`
+  - MJPEG: `uvctest -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir`
+  - MJPEG + PiP: `uvctest -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir --pip-enable 1 --pip-overlay /userdata/mjpeg_overlay --pip-x 20 --pip-y 20 --pip-w 640 --pip-h 480 --pip-jpeg-quality 85`
 - Host:
   - `v4l2-ctl -d /dev/videoX --list-formats-ext`
-  - H.264: `ffplay -f v4l2 -input_format h264 -video_size 640x480 -framerate 25 /dev/videoX`
-  - MJPEG: `ffplay -f v4l2 -input_format mjpeg -video_size 640x480 -framerate 25 /dev/videoX`
+  - H.264: `ffplay -f v4l2 -input_format h264 -video_size 1920x1080 -framerate 25 /dev/videoX`
+  - MJPEG: `ffplay -f v4l2 -input_format mjpeg -video_size 1920x1080 -framerate 25 /dev/videoX`
 
 ## 4.0.1) PiP Library Sanity (Board)
 
 - If PiP reports `Wrong JPEG library version`, check board provides both `libjpeg.so.62` and `libjpeg.so.8`.
-- `my_uvc` must link against `libjpeg.so.8` when `JPEG_LIB_VERSION=80` headers are used.
+- `uvctest` must link against `libjpeg.so.8` when `JPEG_LIB_VERSION=80` headers are used.
 
 ## 4.1) FPS Negotiation Quick Troubleshooting
 
@@ -65,21 +65,21 @@
 ## 4.2) Multi-UVC Quick Check
 
 - 2-channel example:
-  - Board: `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 2 --verbose`
-  - Board: `my_uvc --channels 2 -c /userdata/my_uvc.ini`
+  - Board: `my_uvc_usb_config.sh -w 1920 -h 1080 -p 25 -n 2 --verbose`
+  - Board: `uvctest --channels 2 -c /userdata/my_uvc.ini`
   - Host: `v4l2-ctl --list-devices`, open both video nodes.
 
 ## 4.2.1) 4-Channel Independent Quick Check
 
-- Board USB: `my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 4 --verbose`
-- Board app: `my_uvc -c /userdata/my_uvc.ini`
+- Board USB: `my_uvc_usb_config.sh -w 1920 -h 1080 -p 25 -n 4 --verbose`
+- Board app: `uvctest -c /userdata/my_uvc.ini`
 - Host: open 4 `/dev/videoX` nodes separately.
 - Recommended profile: `config/profiles/my_uvc_4ch_independent.ini`
 
 ## 4.2.2) High-Channel (6/8/10/12/16) Quick Check
 
 - Use matching profile and selector:
-  - `./scripts/select_profile.sh 16 --install --run --fps 10 --size 640x480`
+  - `./scripts/select_profile.sh 16 --install --run --fps 10 --size 1920x1080`
 - Verify:
   - `my_uvc_usb_config.sh` log shows correct channel count
   - app stats output includes all configured channels
@@ -96,7 +96,7 @@
 ### 4.4.1) Replug During Streaming
 
 - Prerequisites:
-  - Board running `my_uvc` with streaming active on host
+  - Board running `uvctest` with streaming active on host
   - USB config script run with `--stop-system-usb`
 - Steps:
   1. Verify normal streaming on host (image visible).
@@ -130,9 +130,9 @@
 
 | Preset | Scenario | Key settings | Command |
 |---|---|---|---|
-| Stable-first | Long-run test | `log_level=1`, `stats_enable=1`, `startup_prime_frames=8` | `my_uvc -c /userdata/my_uvc.ini` |
-| Low-latency | Debugging | `log_level=0`, `stats_enable=0`, `startup_prime_frames=2` | `my_uvc -c /userdata/my_uvc.ini --log-level 0 --stats-enable 0` |
-| Reopen-robust | Frequent open/close | `log_level=2`, `startup_prime_frames=16` | `my_uvc -c /userdata/my_uvc.ini --log-level 2 --startup-prime-frames 16` |
+| Stable-first | Long-run test | `log_level=1`, `stats_enable=1`, `startup_prime_frames=8` | `uvctest -c /userdata/my_uvc.ini` |
+| Low-latency | Debugging | `log_level=0`, `stats_enable=0`, `startup_prime_frames=2` | `uvctest -c /userdata/my_uvc.ini --log-level 0 --stats-enable 0` |
+| Reopen-robust | Frequent open/close | `log_level=2`, `startup_prime_frames=16` | `uvctest -c /userdata/my_uvc.ini --log-level 2 --startup-prime-frames 16` |
 
 Notes:
 - If host shows `non-existing PPS`, increase `startup_prime_frames` by +2.
@@ -156,5 +156,5 @@ Notes:
 
 ## 6) Graceful Exit Check
 
-- Stop `my_uvc` with Ctrl+C.
+- Stop `uvctest` with Ctrl+C.
 - Confirm process exits cleanly and can be restarted.

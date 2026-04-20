@@ -2,8 +2,8 @@
 set -eu
 
 FORMAT="H.264"
-WIDTH="640"
-HEIGHT="480"
+WIDTH="1920"
+HEIGHT="1080"
 FPS="25"
 CHANNELS="1"
 GADGET_DIR="/sys/kernel/config/usb_gadget/rockchip"
@@ -16,7 +16,7 @@ MJPEG_MAX_FRAME_SIZE=""
 
 usage() {
 	echo "Usage: $0 [-f H.264|MJPEG] [-w width] [-h height] [-p fps] [-n channels] [--verbose] [--no-unbind] [--stop-system-usb] [--streaming-maxpacket n] [--streaming-interval n] [--mjpeg-max-frame-size bytes]"
-	echo "Example: $0 -f H.264 -w 640 -h 480"
+	echo "Example: $0 -f H.264 -w 1920 -h 1080"
 	echo "  -f: UVC payload format (same layout as rkipc rkipc_usb_config.sh)"
 	echo "  --streaming-maxpacket: override per-UVC function streaming_maxpacket"
 	echo "  --streaming-interval: override per-UVC function streaming_interval"

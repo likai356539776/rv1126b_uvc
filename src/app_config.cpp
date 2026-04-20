@@ -2,11 +2,15 @@
 
 #include <algorithm>
 #include <cctype>
+#include <filesystem>
 #include <fstream>
 #include <regex>
 #include <sstream>
 
 namespace {
+
+namespace fs = std::filesystem;
+
 std::string trim(const std::string &s) {
 	size_t b = 0;
 	while (b < s.size() && std::isspace(static_cast<unsigned char>(s[b])))
@@ -48,55 +52,336 @@ bool to_bool(const std::string &s, bool *out) {
 	}
 	return false;
 }
-} // namespace
 
-AppConfig default_app_config() {
-	AppConfig cfg;
-	cfg.channels = 1;
-	cfg.width = 640;
-	cfg.height = 480;
-	cfg.fps = 25;
-	cfg.log_every_frames = 120;
-	cfg.idle_sleep_ms = 10;
-	cfg.loop_file = true;
-	cfg.prefer_host_fps = true;
-	cfg.sync_to_idr_on_open = true;
-	cfg.inject_sps_pps_on_idr = true;
-	cfg.startup_prime_frames = 8;
-	cfg.log_level = 1;
-	cfg.stats_enable = true;
-	cfg.stats_interval_sec = 5;
-	cfg.video_codec = "h264";
-	cfg.h264_path = "/userdata/200frames_count.h264";
-	cfg.pip_enable = false;
-	cfg.pip_overlay_path.clear();
-	cfg.pip_x = 20;
-	cfg.pip_y = 20;
-	cfg.pip_w = 160;
-	cfg.pip_h = 120;
-	cfg.pip_jpeg_quality = 85;
-	for (int i = 0; i < kMaxUvcChannels; i++) {
-		cfg.channel_fps[i] = cfg.fps;
-		cfg.channel_h264_path[i] = cfg.h264_path;
-	}
-	return cfg;
+bool section_is_known(const std::string &sec) {
+	return sec == "my_uvc" || sec == "uvc" || sec == "libmy_uvc" || sec == "libmy_uvc_pip" ||
+	       sec == "uvctest";
 }
 
-bool load_app_config(const std::string &path, AppConfig *cfg, std::string *err) {
-	if (!cfg) {
+/** Legacy [my_uvc]/[uvc] accepts all keys; split sections only accept their own keys. */
+bool apply_config_kv(const std::string &section, const std::string &key, const std::string &val, int lineno,
+                     AppConfig *cfg, std::string *err) {
+	const bool legacy = (section == "my_uvc" || section == "uvc");
+	const bool allow_core = legacy || section == "libmy_uvc";
+	const bool allow_pip = legacy || section == "libmy_uvc_pip";
+	const bool allow_test = legacy || section == "uvctest";
+
+	auto reject_key = [&](const char *name) -> bool {
+		if (legacy)
+			return true;
 		if (err)
-			*err = "cfg is null";
+			*err = std::string("key '") + name + "' is not valid in section [" + section + "] at line " +
+			       std::to_string(lineno);
 		return false;
+	};
+
+	bool matched = false;
+
+	if (key == "channels") {
+		if (!allow_core)
+			return reject_key("channels");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 1 || v > kMaxUvcChannels) {
+			if (err)
+				*err = "invalid channels at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->channels = v;
+	} else if (key == "width") {
+		if (!allow_core)
+			return reject_key("width");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v <= 0) {
+			if (err)
+				*err = "invalid width at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->width = v;
+	} else if (key == "height") {
+		if (!allow_core)
+			return reject_key("height");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v <= 0) {
+			if (err)
+				*err = "invalid height at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->height = v;
+	} else if (key == "fps") {
+		if (!allow_core)
+			return reject_key("fps");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v <= 0 || v > 120) {
+			if (err)
+				*err = "invalid fps at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->fps = v;
+	} else if (key == "log_every_frames") {
+		if (!allow_test)
+			return reject_key("log_every_frames");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 0) {
+			if (err)
+				*err = "invalid log_every_frames at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->log_every_frames = v;
+	} else if (key == "idle_sleep_ms") {
+		if (!allow_core)
+			return reject_key("idle_sleep_ms");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 1 || v > 2000) {
+			if (err)
+				*err = "invalid idle_sleep_ms at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->idle_sleep_ms = v;
+	} else if (key == "loop_file") {
+		if (!allow_core)
+			return reject_key("loop_file");
+		matched = true;
+		bool v = false;
+		if (!to_bool(val, &v)) {
+			if (err)
+				*err = "invalid loop_file at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->loop_file = v;
+	} else if (key == "prefer_host_fps") {
+		if (!allow_core)
+			return reject_key("prefer_host_fps");
+		matched = true;
+		bool v = false;
+		if (!to_bool(val, &v)) {
+			if (err)
+				*err = "invalid prefer_host_fps at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->prefer_host_fps = v;
+	} else if (key == "sync_to_idr_on_open") {
+		if (!allow_core)
+			return reject_key("sync_to_idr_on_open");
+		matched = true;
+		bool v = false;
+		if (!to_bool(val, &v)) {
+			if (err)
+				*err = "invalid sync_to_idr_on_open at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->sync_to_idr_on_open = v;
+	} else if (key == "inject_sps_pps_on_idr") {
+		if (!allow_core)
+			return reject_key("inject_sps_pps_on_idr");
+		matched = true;
+		bool v = false;
+		if (!to_bool(val, &v)) {
+			if (err)
+				*err = "invalid inject_sps_pps_on_idr at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->inject_sps_pps_on_idr = v;
+	} else if (key == "startup_prime_frames") {
+		if (!allow_core)
+			return reject_key("startup_prime_frames");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 0 || v > 120) {
+			if (err)
+				*err = "invalid startup_prime_frames at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->startup_prime_frames = v;
+	} else if (key == "log_level") {
+		if (!allow_core)
+			return reject_key("log_level");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 0 || v > 2) {
+			if (err)
+				*err = "invalid log_level at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->log_level = v;
+	} else if (key == "stats_enable") {
+		if (!allow_test)
+			return reject_key("stats_enable");
+		matched = true;
+		bool v = false;
+		if (!to_bool(val, &v)) {
+			if (err)
+				*err = "invalid stats_enable at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->stats_enable = v;
+	} else if (key == "stats_interval_sec") {
+		if (!allow_test)
+			return reject_key("stats_interval_sec");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 1 || v > 3600) {
+			if (err)
+				*err = "invalid stats_interval_sec at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->stats_interval_sec = v;
+	} else if (key == "video_codec" || key == "codec") {
+		if (!allow_core)
+			return reject_key("video_codec");
+		matched = true;
+		std::string v = to_lower(trim(val));
+		if (v == "h264" || v == "264" || v == "avc") {
+			cfg->video_codec = "h264";
+		} else if (v == "mjpeg" || v == "jpeg" || v == "jpg" || v == "mjpg") {
+			cfg->video_codec = "mjpeg";
+		} else {
+			if (err)
+				*err = "invalid video_codec at line " + std::to_string(lineno);
+			return false;
+		}
+	} else if (key == "pip_enable") {
+		if (!allow_pip)
+			return reject_key("pip_enable");
+		matched = true;
+		bool v = false;
+		if (!to_bool(val, &v)) {
+			if (err)
+				*err = "invalid pip_enable at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->pip_enable = v;
+	} else if (key == "pip_overlay_path") {
+		if (!allow_pip)
+			return reject_key("pip_overlay_path");
+		matched = true;
+		if (val.empty()) {
+			if (err)
+				*err = "empty pip_overlay_path at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->pip_overlay_path = val;
+	} else if (key == "pip_x") {
+		if (!allow_pip)
+			return reject_key("pip_x");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v)) {
+			if (err)
+				*err = "invalid pip_x at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->pip_x = v;
+	} else if (key == "pip_y") {
+		if (!allow_pip)
+			return reject_key("pip_y");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v)) {
+			if (err)
+				*err = "invalid pip_y at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->pip_y = v;
+	} else if (key == "pip_w") {
+		if (!allow_pip)
+			return reject_key("pip_w");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v <= 0) {
+			if (err)
+				*err = "invalid pip_w at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->pip_w = v;
+	} else if (key == "pip_h") {
+		if (!allow_pip)
+			return reject_key("pip_h");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v <= 0) {
+			if (err)
+				*err = "invalid pip_h at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->pip_h = v;
+	} else if (key == "pip_jpeg_quality" || key == "pip_quality") {
+		if (!allow_pip)
+			return reject_key("pip_jpeg_quality");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 1 || v > 100) {
+			if (err)
+				*err = "invalid pip_jpeg_quality at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->pip_jpeg_quality = v;
+	} else if (key == "h264_path") {
+		if (!allow_test)
+			return reject_key("h264_path");
+		matched = true;
+		if (val.empty()) {
+			if (err)
+				*err = "empty h264_path at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->h264_path = val;
+	} else {
+		std::smatch m;
+		if (std::regex_match(key, m, std::regex("^channel([0-9]+)_(h264_path|fps)$"))) {
+			if (!allow_test && !legacy) {
+				if (err)
+					*err = "channelN_* keys are only valid in [uvctest] or legacy [my_uvc] at line " +
+					       std::to_string(lineno);
+				return false;
+			}
+			matched = true;
+			int ch = -1;
+			if (!to_int(m[1].str(), &ch) || ch < 0 || ch >= kMaxUvcChannels) {
+				if (err)
+					*err = "invalid channel index at line " + std::to_string(lineno);
+				return false;
+			}
+			std::string field = m[2].str();
+			if (field == "h264_path") {
+				if (val.empty()) {
+					if (err)
+						*err = "empty channel_h264_path at line " + std::to_string(lineno);
+					return false;
+				}
+				cfg->channel_h264_path[ch] = val;
+			} else if (field == "fps") {
+				int v = 0;
+				if (!to_int(val, &v) || v <= 0 || v > 120) {
+					if (err)
+						*err = "invalid channel_fps at line " + std::to_string(lineno);
+					return false;
+				}
+				cfg->channel_fps[ch] = v;
+			}
+		}
 	}
 
-	std::ifstream in(path);
-	if (!in.is_open()) {
+	if (!matched) {
+		if (legacy)
+			return true;
 		if (err)
-			*err = "cannot open config: " + path;
+			*err = "unknown key '" + key + "' in section [" + section + "] at line " + std::to_string(lineno);
 		return false;
 	}
+	return true;
+}
 
+bool load_app_config_stream_impl(std::istream &in, const std::string *only_section, AppConfig *cfg,
+                                 std::string *err, const std::string &path_label)
+{
 	std::string section;
+	bool known_section = false;
 	std::string line;
 	int lineno = 0;
 	while (std::getline(in, line)) {
@@ -114,8 +399,14 @@ bool load_app_config(const std::string &path, AppConfig *cfg, std::string *err) 
 
 		if (line.front() == '[' && line.back() == ']') {
 			section = to_lower(trim(line.substr(1, line.size() - 2)));
+			known_section = section_is_known(section);
 			continue;
 		}
+
+		if (!known_section)
+			continue;
+		if (only_section && section != *only_section)
+			continue;
 
 		size_t eq = line.find('=');
 		if (eq == std::string::npos)
@@ -124,233 +415,143 @@ bool load_app_config(const std::string &path, AppConfig *cfg, std::string *err) 
 		std::string key = to_lower(trim(line.substr(0, eq)));
 		std::string val = trim(line.substr(eq + 1));
 
-		if (section != "my_uvc" && section != "uvc")
-			continue;
-
-		if (key == "channels") {
-			int v = 0;
-			if (!to_int(val, &v) || v < 1 || v > kMaxUvcChannels) {
-				if (err)
-					*err = "invalid channels at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->channels = v;
-		} else if (key == "width") {
-			int v = 0;
-			if (!to_int(val, &v) || v <= 0) {
-				if (err)
-					*err = "invalid width at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->width = v;
-		} else if (key == "height") {
-			int v = 0;
-			if (!to_int(val, &v) || v <= 0) {
-				if (err)
-					*err = "invalid height at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->height = v;
-		} else if (key == "fps") {
-			int v = 0;
-			if (!to_int(val, &v) || v <= 0 || v > 120) {
-				if (err)
-					*err = "invalid fps at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->fps = v;
-		} else if (key == "log_every_frames") {
-			int v = 0;
-			if (!to_int(val, &v) || v < 0) {
-				if (err)
-					*err = "invalid log_every_frames at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->log_every_frames = v;
-		} else if (key == "idle_sleep_ms") {
-			int v = 0;
-			if (!to_int(val, &v) || v < 1 || v > 2000) {
-				if (err)
-					*err = "invalid idle_sleep_ms at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->idle_sleep_ms = v;
-		} else if (key == "loop_file") {
-			bool v = false;
-			if (!to_bool(val, &v)) {
-				if (err)
-					*err = "invalid loop_file at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->loop_file = v;
-		} else if (key == "prefer_host_fps") {
-			bool v = false;
-			if (!to_bool(val, &v)) {
-				if (err)
-					*err = "invalid prefer_host_fps at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->prefer_host_fps = v;
-		} else if (key == "sync_to_idr_on_open") {
-			bool v = false;
-			if (!to_bool(val, &v)) {
-				if (err)
-					*err = "invalid sync_to_idr_on_open at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->sync_to_idr_on_open = v;
-		} else if (key == "inject_sps_pps_on_idr") {
-			bool v = false;
-			if (!to_bool(val, &v)) {
-				if (err)
-					*err = "invalid inject_sps_pps_on_idr at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->inject_sps_pps_on_idr = v;
-		} else if (key == "startup_prime_frames") {
-			int v = 0;
-			if (!to_int(val, &v) || v < 0 || v > 120) {
-				if (err)
-					*err = "invalid startup_prime_frames at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->startup_prime_frames = v;
-		} else if (key == "log_level") {
-			int v = 0;
-			if (!to_int(val, &v) || v < 0 || v > 2) {
-				if (err)
-					*err = "invalid log_level at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->log_level = v;
-		} else if (key == "stats_enable") {
-			bool v = false;
-			if (!to_bool(val, &v)) {
-				if (err)
-					*err = "invalid stats_enable at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->stats_enable = v;
-		} else if (key == "stats_interval_sec") {
-			int v = 0;
-			if (!to_int(val, &v) || v < 1 || v > 3600) {
-				if (err)
-					*err = "invalid stats_interval_sec at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->stats_interval_sec = v;
-		} else if (key == "video_codec" || key == "codec") {
-			std::string v = to_lower(trim(val));
-			if (v == "h264" || v == "264" || v == "avc") {
-				cfg->video_codec = "h264";
-			} else if (v == "mjpeg" || v == "jpeg" || v == "jpg" || v == "mjpg") {
-				cfg->video_codec = "mjpeg";
-			} else {
-				if (err)
-					*err = "invalid video_codec at line " + std::to_string(lineno);
-				return false;
-			}
-		} else if (key == "pip_enable") {
-			bool v = false;
-			if (!to_bool(val, &v)) {
-				if (err)
-					*err = "invalid pip_enable at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->pip_enable = v;
-		} else if (key == "pip_overlay_path") {
-			if (val.empty()) {
-				if (err)
-					*err = "empty pip_overlay_path at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->pip_overlay_path = val;
-		} else if (key == "pip_x") {
-			int v = 0;
-			if (!to_int(val, &v)) {
-				if (err)
-					*err = "invalid pip_x at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->pip_x = v;
-		} else if (key == "pip_y") {
-			int v = 0;
-			if (!to_int(val, &v)) {
-				if (err)
-					*err = "invalid pip_y at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->pip_y = v;
-		} else if (key == "pip_w") {
-			int v = 0;
-			if (!to_int(val, &v) || v <= 0) {
-				if (err)
-					*err = "invalid pip_w at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->pip_w = v;
-		} else if (key == "pip_h") {
-			int v = 0;
-			if (!to_int(val, &v) || v <= 0) {
-				if (err)
-					*err = "invalid pip_h at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->pip_h = v;
-		} else if (key == "pip_jpeg_quality" || key == "pip_quality") {
-			int v = 0;
-			if (!to_int(val, &v) || v < 1 || v > 100) {
-				if (err)
-					*err = "invalid pip_jpeg_quality at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->pip_jpeg_quality = v;
-		} else if (key == "h264_path") {
-			if (val.empty()) {
-				if (err)
-					*err = "empty h264_path at line " + std::to_string(lineno);
-				return false;
-			}
-			cfg->h264_path = val;
-		} else {
-			// Per-channel overrides:
-			//   channel0_h264_path=/userdata/a.h264
-			//   channel1_fps=25
-			std::smatch m;
-			if (std::regex_match(key, m, std::regex("^channel([0-9]+)_(h264_path|fps)$"))) {
-				int ch = -1;
-				if (!to_int(m[1].str(), &ch) || ch < 0 || ch >= kMaxUvcChannels) {
-					if (err)
-						*err = "invalid channel index at line " + std::to_string(lineno);
-					return false;
-				}
-				std::string field = m[2].str();
-				if (field == "h264_path") {
-					if (val.empty()) {
-						if (err)
-							*err = "empty channel_h264_path at line " + std::to_string(lineno);
-						return false;
-					}
-					cfg->channel_h264_path[ch] = val;
-				} else if (field == "fps") {
-					int v = 0;
-					if (!to_int(val, &v) || v <= 0 || v > 120) {
-						if (err)
-							*err = "invalid channel_fps at line " + std::to_string(lineno);
-						return false;
-					}
-					cfg->channel_fps[ch] = v;
-				}
-			}
+		if (!apply_config_kv(section, key, val, lineno, cfg, err)) {
+			if (err)
+				*err = path_label + ": " + *err;
+			return false;
 		}
 	}
+	return true;
+}
 
+bool load_app_config_stream(std::istream &in, AppConfig *cfg, std::string *err, const std::string &path_label)
+{
+	return load_app_config_stream_impl(in, nullptr, cfg, err, path_label);
+}
+
+bool load_app_config_file_merge(const std::string &path, AppConfig *cfg, std::string *err) {
+	std::ifstream in(path);
+	if (!in.is_open()) {
+		if (err)
+			*err = "cannot open config: " + path;
+		return false;
+	}
+	return load_app_config_stream(in, cfg, err, path);
+}
+
+bool load_app_config_stream_section_only(std::istream &in, const std::string &want_section, AppConfig *cfg,
+                                         std::string *err, const std::string &path_label)
+{
+	const std::string want = to_lower(trim(want_section));
+	if (!section_is_known(want)) {
+		if (err)
+			*err = "unknown section name: " + want_section;
+		return false;
+	}
+	return load_app_config_stream_impl(in, &want, cfg, err, path_label);
+}
+
+void finalize_channel_defaults(AppConfig *cfg) {
 	for (int i = 0; i < kMaxUvcChannels; i++) {
 		if (cfg->channel_h264_path[i].empty())
 			cfg->channel_h264_path[i] = cfg->h264_path;
 		if (cfg->channel_fps[i] <= 0)
 			cfg->channel_fps[i] = cfg->fps;
 	}
+}
 
+bool load_app_config_section_from_file_body(const std::string &path, const std::string &section, AppConfig *cfg,
+                                            std::string *err)
+{
+	if (!cfg) {
+		if (err)
+			*err = "cfg is null";
+		return false;
+	}
+	std::ifstream in(path);
+	if (!in.is_open()) {
+		if (err)
+			*err = "cannot open config: " + path;
+		return false;
+	}
+	return load_app_config_stream_section_only(in, section, cfg, err, path);
+}
+
+} // namespace
+
+bool load_app_config_section_from_file(const std::string &path, const std::string &section, AppConfig *cfg,
+                                     std::string *err)
+{
+	return load_app_config_section_from_file_body(path, section, cfg, err);
+}
+
+AppConfig default_app_config() {
+	AppConfig cfg;
+	cfg.channels = 1;
+	cfg.width = 1920;
+	cfg.height = 1080;
+	cfg.fps = 25;
+	cfg.log_every_frames = 120;
+	cfg.idle_sleep_ms = 10;
+	cfg.loop_file = true;
+	cfg.prefer_host_fps = true;
+	cfg.sync_to_idr_on_open = true;
+	cfg.inject_sps_pps_on_idr = true;
+	cfg.startup_prime_frames = 8;
+	cfg.log_level = 1;
+	cfg.stats_enable = true;
+	cfg.stats_interval_sec = 5;
+	cfg.video_codec = "h264";
+	cfg.h264_path = "/userdata/200frames_count.h264";
+	cfg.pip_enable = false;
+	cfg.pip_overlay_path.clear();
+	cfg.pip_x = 20;
+	cfg.pip_y = 20;
+	cfg.pip_w = 640;
+	cfg.pip_h = 480;
+	cfg.pip_jpeg_quality = 85;
+	for (int i = 0; i < kMaxUvcChannels; i++) {
+		cfg.channel_fps[i] = cfg.fps;
+		cfg.channel_h264_path[i] = cfg.h264_path;
+	}
+	return cfg;
+}
+
+bool load_app_config(const std::string &path, AppConfig *cfg, std::string *err) {
+	if (!cfg) {
+		if (err)
+			*err = "cfg is null";
+		return false;
+	}
+
+	*cfg = default_app_config();
+
+	std::error_code ec;
+	if (fs::is_directory(path, ec)) {
+		static const char *kSplit[] = {"libmy_uvc.ini", "libmy_uvc_pip.ini", "uvctest.ini"};
+		int loaded = 0;
+		for (const char *name : kSplit) {
+			fs::path p = fs::path(path) / name;
+			if (!fs::is_regular_file(p, ec))
+				continue;
+			if (!load_app_config_file_merge(p.string(), cfg, err))
+				return false;
+			loaded++;
+		}
+		if (loaded == 0) {
+			fs::path legacy = fs::path(path) / "my_uvc.ini";
+			if (fs::is_regular_file(legacy, ec)) {
+				if (!load_app_config_file_merge(legacy.string(), cfg, err))
+					return false;
+				loaded++;
+			}
+		}
+		finalize_channel_defaults(cfg);
+		return true;
+	}
+
+	if (!load_app_config_file_merge(path, cfg, err))
+		return false;
+	finalize_channel_defaults(cfg);
 	return true;
 }

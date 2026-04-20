@@ -37,6 +37,25 @@ struct AppConfig {
 };
 
 AppConfig default_app_config();
+
+/**
+ * Load configuration into cfg (starts from default_app_config(), then merges).
+ *
+ * - If `path` is a **directory**, merges in order (later files override earlier keys):
+ *     libmy_uvc.ini, libmy_uvc_pip.ini, uvctest.ini
+ *   If none of those exist, falls back to a single file `my_uvc.ini` in that directory
+ *   (legacy monolithic [my_uvc]).
+ * - If `path` is a **file**, parses that file (supports [my_uvc]/[uvc] legacy all-in-one,
+ *   or split sections [libmy_uvc], [libmy_uvc_pip], [uvctest] in one file).
+ */
 bool load_app_config(const std::string &path, AppConfig *cfg, std::string *err);
+
+/**
+ * Merge a single ini file into `cfg`, applying only keys under `[section]` (e.g. `libmy_uvc`, `libmy_uvc_pip`,
+ * `uvctest`, or legacy `my_uvc`). Caller initializes `*cfg` (typically `default_app_config()`).
+ * Does not load directories — one file only.
+ */
+bool load_app_config_section_from_file(const std::string &path, const std::string &section, AppConfig *cfg,
+                                       std::string *err);
 
 #endif // MY_UVC_APP_CONFIG_H_

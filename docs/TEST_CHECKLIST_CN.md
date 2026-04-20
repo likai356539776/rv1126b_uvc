@@ -11,7 +11,7 @@
   - `./autobuild.sh --debug --clean`
   - `./autobuild.sh --release --jobs 8 --install`
   - 多设备：`./autobuild.sh --release --install --adb-serial <serial>`
-- 验证：`file build-rv1126b/my_uvc` 应显示 `aarch64`
+- 验证：`file build-rv1126b/uvctest` 应显示 `aarch64`
 
 ## 2) 部署检查（板端）
 
@@ -29,29 +29,29 @@
 ## 3) USB Gadget 检查（板端）
 
 - 执行：
-  - H.264：`my_uvc_usb_config.sh -f H.264 -w 640 -h 480 -p 25 -n 1 --verbose`
-  - MJPEG：`my_uvc_usb_config.sh -f MJPEG -w 640 -h 480 -p 25 -n 1 --verbose`
+  - H.264：`my_uvc_usb_config.sh -f H.264 -w 1920 -h 1080 -p 25 -n 1 --verbose`
+  - MJPEG：`my_uvc_usb_config.sh -f MJPEG -w 1920 -h 1080 -p 25 -n 1 --verbose`
   - 若系统 USB 服务会覆盖 gadget：追加 `--stop-system-usb`
   - 做 USB 拔插测试时建议始终带 `--stop-system-usb`
 - 验证日志：
   - `final UDC state` 非空
-  - 出现 `Configured UVC ... 640x480 ...`
+  - 出现 `Configured UVC ... 1920x1080 ...`
 
 ## 4) 推流检查（板端 + 主机）
 
 - 板端：
-  - H.264：`my_uvc -c /userdata/my_uvc.ini --codec h264`
-  - MJPEG：`my_uvc -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir`
-  - MJPEG + PiP：`my_uvc -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir --pip-enable 1 --pip-overlay /userdata/mjpeg_overlay --pip-x 20 --pip-y 20 --pip-w 160 --pip-h 120 --pip-jpeg-quality 85`
+  - H.264：`uvctest -c /userdata/my_uvc.ini --codec h264`
+  - MJPEG：`uvctest -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir`
+  - MJPEG + PiP：`uvctest -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir --pip-enable 1 --pip-overlay /userdata/mjpeg_overlay --pip-x 20 --pip-y 20 --pip-w 640 --pip-h 480 --pip-jpeg-quality 85`
 - 主机：
   - `v4l2-ctl -d /dev/videoX --list-formats-ext`
-  - H.264：`ffplay -f v4l2 -input_format h264 -video_size 640x480 -framerate 25 /dev/videoX`
-  - MJPEG：`ffplay -f v4l2 -input_format mjpeg -video_size 640x480 -framerate 25 /dev/videoX`
+  - H.264：`ffplay -f v4l2 -input_format h264 -video_size 1920x1080 -framerate 25 /dev/videoX`
+  - MJPEG：`ffplay -f v4l2 -input_format mjpeg -video_size 1920x1080 -framerate 25 /dev/videoX`
 
 ## 4.0.1) PiP 依赖检查（板端）
 
 - 若 PiP 报 `Wrong JPEG library version`，检查板端 `libjpeg.so.62` 与 `libjpeg.so.8` 的链接情况。
-- `my_uvc` 需链接 `libjpeg.so.8`。
+- `uvctest` 需链接 `libjpeg.so.8`。
 
 ## 4.1) FPS 协商排障
 
@@ -62,21 +62,21 @@
 ## 4.2) 多路 UVC 快速检查
 
 - 2 路示例：
-  - 板端：`my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 2 --verbose`
-  - 板端：`my_uvc --channels 2 -c /userdata/my_uvc.ini`
+  - 板端：`my_uvc_usb_config.sh -w 1920 -h 1080 -p 25 -n 2 --verbose`
+  - 板端：`uvctest --channels 2 -c /userdata/my_uvc.ini`
   - 主机：`v4l2-ctl --list-devices`，分别打开两个视频节点。
 
 ## 4.2.1) 4 路独立快速检查
 
-- 板端 USB：`my_uvc_usb_config.sh -w 640 -h 480 -p 25 -n 4 --verbose`
-- 板端应用：`my_uvc -c /userdata/my_uvc.ini`
+- 板端 USB：`my_uvc_usb_config.sh -w 1920 -h 1080 -p 25 -n 4 --verbose`
+- 板端应用：`uvctest -c /userdata/my_uvc.ini`
 - 主机：分别打开 4 个 `/dev/videoX` 节点。
 - 推荐 profile：`config/profiles/my_uvc_4ch_independent.ini`
 
 ## 4.2.2) 高路数（6/8/10/12/16）快速检查
 
 - 使用对应 profile 与选择器：
-  - `./scripts/select_profile.sh 16 --install --run --fps 10 --size 640x480`
+  - `./scripts/select_profile.sh 16 --install --run --fps 10 --size 1920x1080`
 - 验证：USB 配置日志显示正确路数，应用统计覆盖所有路。
 
 ## 4.3) 复开流鲁棒性检查（PPS/IDR）
@@ -90,7 +90,7 @@
 ### 4.4.1) 推流中拔插
 
 - 前提：
-  - 板端 `my_uvc` 运行中，主机端正在预览画面
+  - 板端 `uvctest` 运行中，主机端正在预览画面
   - USB 配置脚本使用了 `--stop-system-usb`
 - 步骤：
   1. 确认主机端画面正常。
@@ -122,13 +122,16 @@
 
 ## 4.5) 推荐预设（速查）
 
-| 预设 | 场景 | 关键参数 | 命令示例 |
-|---|---|---|---|
-| 稳定优先 | 长时压测 | `log_level=1`, `stats_enable=1`, `startup_prime_frames=8` | `my_uvc -c /userdata/my_uvc.ini` |
-| 低时延优先 | 调试 | `log_level=0`, `stats_enable=0`, `startup_prime_frames=2` | `my_uvc -c /userdata/my_uvc.ini --log-level 0 --stats-enable 0` |
-| 复开流鲁棒 | 高频开关流 | `log_level=2`, `startup_prime_frames=16` | `my_uvc -c /userdata/my_uvc.ini --log-level 2 --startup-prime-frames 16` |
+
+| 预设    | 场景    | 关键参数                                                      | 命令示例                                                                      |
+| ----- | ----- | --------------------------------------------------------- | ------------------------------------------------------------------------- |
+| 稳定优先  | 长时压测  | `log_level=1`, `stats_enable=1`, `startup_prime_frames=8` | `uvctest -c /userdata/my_uvc.ini`                                         |
+| 低时延优先 | 调试    | `log_level=0`, `stats_enable=0`, `startup_prime_frames=2` | `uvctest -c /userdata/my_uvc.ini --log-level 0 --stats-enable 0`          |
+| 复开流鲁棒 | 高频开关流 | `log_level=2`, `startup_prime_frames=16`                  | `uvctest -c /userdata/my_uvc.ini --log-level 2 --startup-prime-frames 16` |
+
 
 说明：
+
 - 若主机反复报 `non-existing PPS`，按 +2 递增 `startup_prime_frames`。
 - USB 拔插测试建议始终使用 `--stop-system-usb`。
 
@@ -150,5 +153,6 @@
 
 ## 6) 优雅退出检查
 
-- 使用 Ctrl+C 停止 `my_uvc`。
+- 使用 Ctrl+C 停止 `uvctest`。
 - 确认进程正常退出，且可再次启动。
+

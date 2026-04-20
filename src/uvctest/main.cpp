@@ -1,6 +1,8 @@
 #include "app_config.h"
-#include "mpp_jpeg.h"
-#include "pip_mjpeg.h"
+#include "my_uvc/my_uvc.h"
+#include "my_uvc_pip/pip_helper.h"
+#include "uvctest/libmy_uvc_config_bridge.hpp"
+#include "uvctest/uvctest_cli.hpp"
 
 #include <atomic>
 #include <algorithm>
@@ -21,16 +23,11 @@
 #include <utility>
 #include <vector>
 
-extern "C" {
-#include "uvc_control.h"
-#include "uvc-gadget.h"
-#include "uvc_video.h"
-}
-
 namespace {
 std::atomic<bool> g_run(true);
 std::atomic<int> g_log_level(1);
 std::mutex g_log_mu;
+my_uvc_t *g_my_uvc_ctx = nullptr;
 
 enum LogLevel {
 	LOG_ERROR = 0,
@@ -43,7 +40,7 @@ void log_msg(int level, const char *fmt, ...) {
 		return;
 	std::lock_guard<std::mutex> lk(g_log_mu);
 	const char *tag = (level == LOG_ERROR) ? "E" : (level == LOG_DEBUG) ? "D" : "I";
-	std::fprintf(stderr, "[my_uvc][%s] ", tag);
+	std::fprintf(stderr, "[uvctest][%s] ", tag);
 	va_list ap;
 	va_start(ap, fmt);
 	std::vfprintf(stderr, fmt, ap);
@@ -154,31 +151,6 @@ std::string to_lower_ascii(std::string s) {
 		jpegs->push_back(std::move(img));
 	}
 	return !jpegs->empty();
-}
-
-bool list_jpeg_paths_from_dir(const std::string &dir, std::vector<std::filesystem::path> *paths) {
-	if (!paths)
-		return false;
-	paths->clear();
-	std::error_code ec;
-	for (const auto &ent : std::filesystem::directory_iterator(std::filesystem::path(dir), ec)) {
-		if (ec)
-			break;
-		if (!ent.is_regular_file())
-			continue;
-		auto ext = to_lower_ascii(ent.path().extension().string());
-		if (ext == ".jpg" || ext == ".jpeg")
-			paths->push_back(ent.path());
-	}
-	if (ec)
-		return false;
-	if (paths->empty())
-		return false;
-	std::sort(paths->begin(), paths->end(),
-	          [](const std::filesystem::path &a, const std::filesystem::path &b) {
-		          return a.filename().string() < b.filename().string();
-	          });
-	return true;
 }
 
 bool load_mjpeg_frames_from_dir(const std::string &dir, std::vector<std::vector<uint8_t>> *frames) {
@@ -435,85 +407,32 @@ void channel_worker(StreamChannelContext ch) {
 	const size_t nframes = ch.mjpeg_mode ? (!ch.mjpeg_frames.empty() ? ch.mjpeg_frames.size() : ch.mjpeg_ranges.size())
 	                                     : ch.frames.size();
 
-	bool pip_ok = false;
-	std::vector<std::vector<uint8_t>> pip_overlay_nv12s;
-	std::vector<uint8_t> pip_overlay_nv12_single;
-	size_t pip_overlay_idx = 0;
-	std::vector<uint8_t> pip_jpeg_out;
-	PipHwContext *pip_hw_ctx = nullptr;
-	int pip_ow = (ch.pip_w + 1) & ~1;
-	int pip_oh = (ch.pip_h + 1) & ~1;
+	pip_helper_t *pip = nullptr;
 	if (ch.mjpeg_mode && ch.pip_enable) {
-		if (!pip_hw_init(&pip_hw_ctx, ch.width, ch.height, ch.pip_jpeg_quality)) {
-			log_msg(LOG_ERROR, "pip: hw init failed (ch=%d)", ch.channel_id);
-			if (ch.stats) ch.stats->stream_on.store(0);
-			return;
-		}
-
-		std::vector<uint8_t> ov_jpg;
-		if (is_dir_path(ch.pip_overlay_path)) {
-			std::vector<std::filesystem::path> ov_paths;
-			if (!list_jpeg_paths_from_dir(ch.pip_overlay_path, &ov_paths)) {
-				log_msg(LOG_ERROR, "pip: overlay dir has no jpg: %s (ch=%d)", ch.pip_overlay_path.c_str(),
-				        ch.channel_id);
-			} else {
-				pip_overlay_nv12s.reserve(ov_paths.size());
-				for (size_t i = 0; i < ov_paths.size(); i++) {
-					const auto &p = ov_paths[i];
-					std::vector<uint8_t> ov_dec;
-					int ojw = 0, ojh = 0;
-					if (!pip_mjpeg_decode_jpeg_file_rgb(p.c_str(), &ov_dec, &ojw, &ojh)) {
-						log_msg(LOG_ERROR, "pip: overlay[%zu] JPEG decode failed: %s (ch=%d) reason='%s'", i, p.c_str(),
-						        ch.channel_id, pip_mjpeg_last_error());
-						continue;
-					}
-					std::vector<uint8_t> scaled_rgb(static_cast<size_t>(pip_ow * pip_oh * 3));
-					pip_mjpeg_scale_rgb_bilinear(ov_dec.data(), ojw, ojh, scaled_rgb.data(), pip_ow, pip_oh);
-					std::vector<uint8_t> nv12;
-					if (!pip_hw_rgb_to_nv12(scaled_rgb.data(), pip_ow, pip_oh, &nv12)) {
-						log_msg(LOG_ERROR, "pip: overlay[%zu] RGB→NV12 failed (ch=%d)", i, ch.channel_id);
-						continue;
-					}
-					pip_overlay_nv12s.push_back(std::move(nv12));
-				}
-				if (!pip_overlay_nv12s.empty()) {
-					pip_ok = true;
-					log_msg(LOG_INFO, "pip: ch=%d overlay_dir=%s frames=%zu nv12=%dx%d at (%d,%d)", ch.channel_id,
-					        ch.pip_overlay_path.c_str(), pip_overlay_nv12s.size(), pip_ow, pip_oh, ch.pip_x, ch.pip_y);
-				}
-			}
-		} else if (!read_file_all(ch.pip_overlay_path, &ov_jpg)) {
-			log_msg(LOG_ERROR, "pip: cannot read overlay %s (ch=%d)", ch.pip_overlay_path.c_str(), ch.channel_id);
-		} else {
-			std::vector<uint8_t> ov_dec;
-			int ojw = 0, ojh = 0;
-			if (!pip_mjpeg_decode_jpeg_rgb(ov_jpg.data(), ov_jpg.size(), &ov_dec, &ojw, &ojh)) {
-				log_msg(LOG_ERROR, "pip: overlay JPEG decode failed: %s (ch=%d) reason='%s'",
-				        ch.pip_overlay_path.c_str(), ch.channel_id, pip_mjpeg_last_error());
-			} else {
-				std::vector<uint8_t> scaled_rgb(static_cast<size_t>(pip_ow * pip_oh * 3));
-				pip_mjpeg_scale_rgb_bilinear(ov_dec.data(), ojw, ojh, scaled_rgb.data(), pip_ow, pip_oh);
-				if (!pip_hw_rgb_to_nv12(scaled_rgb.data(), pip_ow, pip_oh, &pip_overlay_nv12_single)) {
-					log_msg(LOG_ERROR, "pip: overlay RGB→NV12 failed (ch=%d)", ch.channel_id);
-				} else {
-					pip_ok = true;
-					log_msg(LOG_INFO, "pip: ch=%d overlay=%s nv12=%dx%d at (%d,%d)", ch.channel_id,
-					        ch.pip_overlay_path.c_str(), pip_ow, pip_oh, ch.pip_x, ch.pip_y);
-				}
-			}
-		}
-		if (!pip_ok) {
-			log_msg(LOG_ERROR, "channel %d exiting worker (pip init failed)", ch.channel_id);
-			pip_hw_deinit(pip_hw_ctx);
+		pip_helper_config_t pcfg{};
+		pcfg.pip_enable = 1;
+		pcfg.canvas_width = ch.width;
+		pcfg.canvas_height = ch.height;
+		pcfg.pip_x = ch.pip_x;
+		pcfg.pip_y = ch.pip_y;
+		pcfg.pip_w = ch.pip_w;
+		pcfg.pip_h = ch.pip_h;
+		pcfg.pip_jpeg_quality = ch.pip_jpeg_quality;
+		pcfg.pip_overlay_path = ch.pip_overlay_path.c_str();
+		pip = pip_helper_create(ch.channel_id, &pcfg);
+		if (!pip) {
+			log_msg(LOG_ERROR, "pip_helper_create failed (ch=%d): %s", ch.channel_id, pip_helper_last_error());
 			if (ch.stats)
 				ch.stats->stream_on.store(0);
 			return;
 		}
+		log_msg(LOG_INFO, "pip: ch=%d helper=%s overlay=%s", ch.channel_id, pip_helper_version(),
+		        ch.pip_overlay_path.c_str());
 	}
 
 	while (g_run.load()) {
 		// Re-resolve video_id by channel sequence after USB replug/re-enumeration.
-		int latest_video_id = uvc_video_id_get(static_cast<unsigned int>(ch.channel_id));
+		int latest_video_id = my_uvc_channel_video_id(ch.channel_id);
 		if (latest_video_id >= 0 && latest_video_id != active_video_id) {
 			log_msg(LOG_INFO, "channel %d remap video_id %d -> %d", ch.channel_id, active_video_id,
 			        latest_video_id);
@@ -531,7 +450,7 @@ void channel_worker(StreamChannelContext ch) {
 		}
 
 		// Per-channel stream gate: true only after this channel gets COMMIT/STREAMON.
-		bool channel_stream_on = uvc_video_get_uvc_process(active_video_id);
+		bool channel_stream_on = my_uvc_video_streaming(active_video_id) != 0;
 		if (!channel_stream_on) {
 			if (ch.stats && ch.stats->stream_on.load() != 0) {
 				ch.stats->stream_on.store(0);
@@ -559,7 +478,7 @@ void channel_worker(StreamChannelContext ch) {
 			send_frame_idx = ch.mjpeg_mode ? 0 : ch.first_idr_frame_idx;
 
 		if (ch.mjpeg_mode) {
-			if (pip_ok) {
+			if (pip) {
 				const uint8_t *bg_ptr = nullptr;
 				size_t bg_len = 0;
 				if (!ch.mjpeg_frames.empty()) {
@@ -571,39 +490,31 @@ void channel_worker(StreamChannelContext ch) {
 					bg_ptr = ch.bitstream.data() + seg.first;
 					bg_len = seg.second;
 				}
-				const uint8_t *ov_ptr = pip_overlay_nv12_single.data();
-				if (!pip_overlay_nv12s.empty()) {
-					ov_ptr = pip_overlay_nv12s[pip_overlay_idx].data();
-				}
-
-				if (!pip_hw_composite(pip_hw_ctx, bg_ptr, bg_len, ov_ptr, pip_ow, pip_oh,
-				                      ch.pip_x, ch.pip_y, &pip_jpeg_out)) {
+				const uint8_t *pip_out = nullptr;
+				size_t pip_out_len = 0;
+				if (pip_helper_composite_mjpeg(pip, bg_ptr, bg_len, &pip_out, &pip_out_len) != 0) {
 					if (ch.stats)
 						ch.stats->error_count.fetch_add(1);
 				} else {
-					uvc_read_camera_buffer_by_id(pip_jpeg_out.data(), -1, pip_jpeg_out.size(), nullptr, 0,
-					                             active_video_id);
+					if (g_my_uvc_ctx)
+						my_uvc_submit_mjpeg(g_my_uvc_ctx, ch.channel_id, pip_out, pip_out_len);
 					sent_frames++;
 					if (ch.stats)
 						ch.stats->total_frames.fetch_add(1);
 				}
-
-				if (!pip_overlay_nv12s.empty()) {
-					pip_overlay_idx++;
-					if (pip_overlay_idx >= pip_overlay_nv12s.size())
-						pip_overlay_idx = 0;
-				}
 			} else if (!ch.mjpeg_frames.empty()) {
 				auto &img = ch.mjpeg_frames[send_frame_idx];
 				void *ptr = img.data();
-				uvc_read_camera_buffer_by_id(ptr, -1, img.size(), nullptr, 0, active_video_id);
+				if (g_my_uvc_ctx)
+					my_uvc_submit_mjpeg(g_my_uvc_ctx, ch.channel_id, ptr, img.size());
 				sent_frames++;
 				if (ch.stats)
 					ch.stats->total_frames.fetch_add(1);
 			} else {
 				const auto &seg = ch.mjpeg_ranges[send_frame_idx];
 				void *ptr = ch.bitstream.data() + seg.first;
-				uvc_read_camera_buffer_by_id(ptr, -1, seg.second, nullptr, 0, active_video_id);
+				if (g_my_uvc_ctx)
+					my_uvc_submit_mjpeg(g_my_uvc_ctx, ch.channel_id, ptr, seg.second);
 				sent_frames++;
 				if (ch.stats)
 					ch.stats->total_frames.fetch_add(1);
@@ -621,7 +532,8 @@ void channel_worker(StreamChannelContext ch) {
 
 			if (!frame_buf.empty()) {
 				void *ptr = const_cast<uint8_t *>(frame_buf.data());
-				uvc_read_camera_buffer_by_id(ptr, -1, frame_buf.size(), nullptr, 0, active_video_id);
+				if (g_my_uvc_ctx)
+					my_uvc_submit_h264(g_my_uvc_ctx, ch.channel_id, ptr, frame_buf.size());
 				sent_frames++;
 				if (ch.stats)
 					ch.stats->total_frames.fetch_add(1);
@@ -666,7 +578,7 @@ void channel_worker(StreamChannelContext ch) {
 		}
 	}
 
-	pip_hw_deinit(pip_hw_ctx);
+	pip_helper_destroy(pip);
 
 	if (ch.stats)
 		ch.stats->stream_on.store(0);
@@ -710,15 +622,27 @@ void close_uvc_cb(void) {
 	log_msg(LOG_INFO, "close uvc");
 }
 
+extern "C" {
+int my_uvc_open_bridge(void *user, int w, int h, int fcc, int fps) {
+	(void)user;
+	return open_uvc_cb(w, h, fcc, fps);
+}
+void my_uvc_close_bridge(void *user) {
+	(void)user;
+	close_uvc_cb();
+}
+}
+
 void print_usage(const char *argv0) {
 	std::fprintf(stderr,
-	             "Usage: %s [-c config] [--codec h264|mjpeg] [--channels n] [--file path|dir] [--width w] "
+	             "Usage: %s [-c dir|file] [--codec h264|mjpeg] [--channels n] [--file path|dir] [--width w] "
 	             "[--height h] [--fps fps] "
 	             "[--size WxH] "
 	             "[--pip-enable 0|1] [--pip-overlay path] [--pip-x n] [--pip-y n] [--pip-w n] [--pip-h n] "
 	             "[--pip-jpeg-quality 1-100] "
 	             "[--log-every n] [--log-level 0|1|2] [--stats-enable 0|1] "
-	             "[--stats-interval sec] [--startup-prime-frames n]\n",
+	             "[--stats-interval sec] [--startup-prime-frames n]\n"
+	             "  Board/install binary name: `uvctest`.\n",
 	             argv0);
 }
 } // namespace
@@ -727,204 +651,28 @@ int main(int argc, char **argv) {
 	std::signal(SIGINT, on_signal);
 	std::signal(SIGTERM, on_signal);
 
-	std::string config_path = "/userdata/my_uvc.ini";
-	AppConfig cli_cfg = default_app_config();
-	bool cli_file = false;
-	bool cli_channels = false;
-	bool cli_width = false;
-	bool cli_height = false;
-	bool cli_size = false;
-	bool cli_fps = false;
-	bool cli_log_every = false;
-	bool cli_log_level = false;
-	bool cli_stats_enable = false;
-	bool cli_stats_interval = false;
-	bool cli_startup_prime_frames = false;
-	bool cli_codec = false;
-	bool cli_pip_enable = false;
-	bool cli_pip_overlay = false;
-	bool cli_pip_x = false;
-	bool cli_pip_y = false;
-	bool cli_pip_w = false;
-	bool cli_pip_h = false;
-	bool cli_pip_quality = false;
-
-	for (int i = 1; i < argc; i++) {
-		std::string a = argv[i];
-		if (a == "-c" && i + 1 < argc) {
-			config_path = argv[++i];
-		} else if (a == "--codec" && i + 1 < argc) {
-			std::string c = argv[++i];
-			for (auto &x : c)
-				x = static_cast<char>(std::tolower(static_cast<unsigned char>(x)));
-			if (c == "h264" || c == "264" || c == "avc")
-				cli_cfg.video_codec = "h264";
-			else if (c == "mjpeg" || c == "jpeg" || c == "jpg" || c == "mjpg")
-				cli_cfg.video_codec = "mjpeg";
-			else {
-				std::fprintf(stderr, "[my_uvc] invalid --codec (use h264 or mjpeg)\n");
-				return 1;
-			}
-			cli_codec = true;
-		} else if (a == "--channels" && i + 1 < argc) {
-			cli_cfg.channels = std::stoi(argv[++i]);
-			cli_channels = true;
-		} else if (a == "--file" && i + 1 < argc) {
-			cli_cfg.h264_path = argv[++i];
-			cli_file = true;
-		} else if (a == "--width" && i + 1 < argc) {
-			cli_cfg.width = std::stoi(argv[++i]);
-			cli_width = true;
-		} else if (a == "--height" && i + 1 < argc) {
-			cli_cfg.height = std::stoi(argv[++i]);
-			cli_height = true;
-		} else if (a == "--size" && i + 1 < argc) {
-			int w = 0;
-			int h = 0;
-			std::string size = argv[++i];
-			if (std::sscanf(size.c_str(), "%dx%d", &w, &h) != 2 || w <= 0 || h <= 0) {
-				std::fprintf(stderr, "[my_uvc] invalid --size: %s (expected WxH)\n", size.c_str());
-				return 1;
-			}
-			cli_cfg.width = w;
-			cli_cfg.height = h;
-			cli_size = true;
-		} else if (a == "--fps" && i + 1 < argc) {
-			cli_cfg.fps = std::stoi(argv[++i]);
-			cli_fps = true;
-		} else if (a == "--log-every" && i + 1 < argc) {
-			cli_cfg.log_every_frames = std::stoi(argv[++i]);
-			cli_log_every = true;
-		} else if (a == "--log-level" && i + 1 < argc) {
-			cli_cfg.log_level = std::stoi(argv[++i]);
-			cli_log_level = true;
-		} else if (a == "--stats-enable" && i + 1 < argc) {
-			cli_cfg.stats_enable = std::stoi(argv[++i]) != 0;
-			cli_stats_enable = true;
-		} else if (a == "--stats-interval" && i + 1 < argc) {
-			cli_cfg.stats_interval_sec = std::stoi(argv[++i]);
-			cli_stats_interval = true;
-		} else if (a == "--startup-prime-frames" && i + 1 < argc) {
-			cli_cfg.startup_prime_frames = std::stoi(argv[++i]);
-			cli_startup_prime_frames = true;
-		} else if (a == "--pip-enable" && i + 1 < argc) {
-			cli_cfg.pip_enable = (std::stoi(argv[++i]) != 0);
-			cli_pip_enable = true;
-		} else if (a == "--pip-overlay" && i + 1 < argc) {
-			cli_cfg.pip_overlay_path = argv[++i];
-			cli_cfg.pip_enable = true;
-			cli_pip_overlay = true;
-		} else if (a == "--pip-x" && i + 1 < argc) {
-			cli_cfg.pip_x = std::stoi(argv[++i]);
-			cli_pip_x = true;
-		} else if (a == "--pip-y" && i + 1 < argc) {
-			cli_cfg.pip_y = std::stoi(argv[++i]);
-			cli_pip_y = true;
-		} else if (a == "--pip-w" && i + 1 < argc) {
-			cli_cfg.pip_w = std::stoi(argv[++i]);
-			cli_pip_w = true;
-		} else if (a == "--pip-h" && i + 1 < argc) {
-			cli_cfg.pip_h = std::stoi(argv[++i]);
-			cli_pip_h = true;
-		} else if (a == "--pip-jpeg-quality" && i + 1 < argc) {
-			cli_cfg.pip_jpeg_quality = std::stoi(argv[++i]);
-			cli_pip_quality = true;
-		} else if (a == "-h" || a == "--help") {
-			print_usage(argv[0]);
-			return 0;
-		} else {
-			print_usage(argv[0]);
-			return 1;
-		}
+	uvctest::CliState cli{};
+	const uvctest::CliParseResult pr = uvctest::parse_cli(argc, argv, &cli);
+	if (pr == uvctest::CliParseResult::Help) {
+		print_usage(argv[0]);
+		return 0;
+	}
+	if (pr == uvctest::CliParseResult::BadArg) {
+		print_usage(argv[0]);
+		return 1;
 	}
 
 	AppConfig cfg = default_app_config();
 	std::string err;
-	if (!load_app_config(config_path, &cfg, &err))
-		std::fprintf(stderr, "[my_uvc] warning: %s, fallback to defaults\n", err.c_str());
+	if (!load_app_config(cli.config_path, &cfg, &err))
+		std::fprintf(stderr, "[uvctest] warning: %s, fallback to defaults\n", err.c_str());
 
-	if (cli_file) {
-		cfg.h264_path = cli_cfg.h264_path;
-		/* Ini channelN_h264_path overrides global; CLI --file must win for all channels. */
-		for (int i = 0; i < kMaxUvcChannels; i++)
-			cfg.channel_h264_path[i] = cfg.h264_path;
-	}
-	if (cli_channels)
-		cfg.channels = cli_cfg.channels;
-	if (cli_width)
-		cfg.width = cli_cfg.width;
-	if (cli_height)
-		cfg.height = cli_cfg.height;
-	if (cli_size) {
-		cfg.width = cli_cfg.width;
-		cfg.height = cli_cfg.height;
-	}
-	if (cli_fps)
-		cfg.fps = cli_cfg.fps;
-	if (cli_log_every)
-		cfg.log_every_frames = cli_cfg.log_every_frames;
-	if (cli_log_level)
-		cfg.log_level = cli_cfg.log_level;
-	if (cli_stats_enable)
-		cfg.stats_enable = cli_cfg.stats_enable;
-	if (cli_stats_interval)
-		cfg.stats_interval_sec = cli_cfg.stats_interval_sec;
-	if (cli_startup_prime_frames)
-		cfg.startup_prime_frames = cli_cfg.startup_prime_frames;
-	if (cli_codec)
-		cfg.video_codec = cli_cfg.video_codec;
-	if (cli_pip_overlay) {
-		cfg.pip_overlay_path = cli_cfg.pip_overlay_path;
-		cfg.pip_enable = true;
-	}
-	if (cli_pip_enable)
-		cfg.pip_enable = cli_cfg.pip_enable;
-	if (cli_pip_x)
-		cfg.pip_x = cli_cfg.pip_x;
-	if (cli_pip_y)
-		cfg.pip_y = cli_cfg.pip_y;
-	if (cli_pip_w)
-		cfg.pip_w = cli_cfg.pip_w;
-	if (cli_pip_h)
-		cfg.pip_h = cli_cfg.pip_h;
-	if (cli_pip_quality)
-		cfg.pip_jpeg_quality = cli_cfg.pip_jpeg_quality;
-	if (cfg.video_codec != "h264" && cfg.video_codec != "mjpeg") {
-		std::fprintf(stderr, "[my_uvc] invalid video_codec in config (use h264 or mjpeg)\n");
+	uvctest::merge_cli_into_config(&cfg, cli);
+
+	std::string verr;
+	if (!uvctest::validate_config(&cfg, &verr)) {
+		std::fprintf(stderr, "%s\n", verr.c_str());
 		return 1;
-	}
-	if (cfg.channels < 1)
-		cfg.channels = 1;
-	if (cfg.channels > kMaxUvcChannels)
-		cfg.channels = kMaxUvcChannels;
-	if (cfg.log_level < 0)
-		cfg.log_level = 0;
-	if (cfg.log_level > 2)
-		cfg.log_level = 2;
-	if (cfg.stats_interval_sec < 1)
-		cfg.stats_interval_sec = 1;
-	if (cfg.startup_prime_frames < 0)
-		cfg.startup_prime_frames = 0;
-	if (cfg.startup_prime_frames > 120)
-		cfg.startup_prime_frames = 120;
-	if (cfg.pip_jpeg_quality < 1)
-		cfg.pip_jpeg_quality = 1;
-	if (cfg.pip_jpeg_quality > 100)
-		cfg.pip_jpeg_quality = 100;
-
-	if (cfg.pip_enable) {
-		if (cfg.video_codec != "mjpeg") {
-			std::fprintf(stderr, "[my_uvc] pip_enable requires video_codec=mjpeg\n");
-			return 1;
-		}
-		if (cfg.pip_overlay_path.empty()) {
-			std::fprintf(stderr, "[my_uvc] pip_enable requires pip_overlay_path (ini or --pip-overlay)\n");
-			return 1;
-		}
-		if (cfg.pip_w <= 0 || cfg.pip_h <= 0) {
-			std::fprintf(stderr, "[my_uvc] pip_w and pip_h must be positive\n");
-			return 1;
-		}
 	}
 
 	g_log_level.store(cfg.log_level);
@@ -940,24 +688,27 @@ int main(int argc, char **argv) {
 	if (cfg.pip_enable)
 		log_msg(LOG_INFO, "config: pip=1 overlay=%s rect=%dx%d@%d,%d quality=%d", cfg.pip_overlay_path.c_str(),
 		        cfg.pip_w, cfg.pip_h, cfg.pip_x, cfg.pip_y, cfg.pip_jpeg_quality);
+	log_msg(LOG_DEBUG, "pip_helper: %s", pip_helper_version());
 
 	/*
 	 * Follow rkipc default: event-driven uvc_control mode (flags=0).
 	 * This allows add/remove uevents to trigger video-id rebuild after USB replug.
 	 */
 	const uint32_t flags = 0;
-	{
-		char buf[16] = {0};
-		std::snprintf(buf, sizeof(buf), "%d", cfg.channels);
-		setenv("UVC_CNT", buf, 1);
-	}
-	uvc_formats_init(cfg.video_codec == "mjpeg" ? "MJPEG" : "H.264", cfg.width, cfg.height);
-	register_uvc_open_camera(open_uvc_cb);
-	register_uvc_close_camera(close_uvc_cb);
+	my_uvc_config_t ucfg{};
+	uvctest_fill_my_uvc_config(cfg, my_uvc_open_bridge, my_uvc_close_bridge, nullptr, &ucfg);
 
-	if (uvc_control_run(flags) != 0) {
+	my_uvc_t *uvc = my_uvc_create(&ucfg);
+	if (!uvc) {
+		log_msg(LOG_ERROR, "my_uvc_create failed");
+		return 4;
+	}
+	g_my_uvc_ctx = uvc;
+
+	if (my_uvc_start(uvc, flags) != 0) {
 		log_msg(LOG_ERROR, "uvc_control_run failed, run usb config script first");
-		uvc_formats_deinit();
+		g_my_uvc_ctx = nullptr;
+		my_uvc_destroy(uvc);
 		return 4;
 	}
 
@@ -968,7 +719,7 @@ int main(int argc, char **argv) {
 	for (int i = 0; i < cfg.channels; i++) {
 		StreamChannelContext ch{};
 		ch.channel_id = i;
-		ch.video_id = uvc_video_id_get(static_cast<unsigned int>(i));
+		ch.video_id = my_uvc_channel_video_id(i);
 		ch.width = cfg.width;
 		ch.height = cfg.height;
 		ch.fps = cfg.channel_fps[i] > 0 ? cfg.channel_fps[i] : cfg.fps;
@@ -998,8 +749,10 @@ int main(int argc, char **argv) {
 		}
 		if (!load_channel_stream(&ch)) {
 			log_msg(LOG_ERROR, "load stream failed for channel %d (%s)", i, ch.h264_path.c_str());
-			uvc_control_join(flags);
-			uvc_formats_deinit();
+			my_uvc_control_join(uvc, flags);
+			my_uvc_formats_deinit(uvc);
+			g_my_uvc_ctx = nullptr;
+			my_uvc_destroy(uvc);
 			return 5;
 		}
 		log_msg(LOG_INFO, "channel %d mapped video_id=%d fps=%d file=%s", i, ch.video_id, ch.fps,
@@ -1009,8 +762,10 @@ int main(int argc, char **argv) {
 	}
 	if (channels.empty()) {
 		log_msg(LOG_ERROR, "no valid channels to run");
-		uvc_control_join(flags);
-		uvc_formats_deinit();
+		my_uvc_control_join(uvc, flags);
+		my_uvc_formats_deinit(uvc);
+		g_my_uvc_ctx = nullptr;
+		my_uvc_destroy(uvc);
 		return 6;
 	}
 
@@ -1028,8 +783,10 @@ int main(int argc, char **argv) {
 	if (stats_thread.joinable())
 		stats_thread.join();
 
-	uvc_control_join(flags);
-	uvc_formats_deinit();
+	my_uvc_control_join(uvc, flags);
+	my_uvc_formats_deinit(uvc);
+	g_my_uvc_ctx = nullptr;
+	my_uvc_destroy(uvc);
 	log_msg(LOG_INFO, "exit");
 	return 0;
 }

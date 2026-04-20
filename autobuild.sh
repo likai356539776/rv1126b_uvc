@@ -102,7 +102,7 @@ cmake -S "${PROJECT_DIR}" \
 echo "[autobuild] Building project..."
 cmake --build "${BUILD_DIR}" -j"${BUILD_JOBS}"
 
-echo "[autobuild] Build finished: ${BUILD_DIR}/my_uvc"
+echo "[autobuild] Build finished: ${BUILD_DIR}/uvctest (lib: ${BUILD_DIR}/libmy_uvc.so*)"
 
 if [[ ${DO_INSTALL} -eq 1 ]]; then
 	INSTALL_SCRIPT="${PROJECT_DIR}/my_uvc_install_to_device.sh"
