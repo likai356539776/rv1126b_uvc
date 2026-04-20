@@ -19,5 +19,6 @@ echo "      单独复跑: tests/integration/board_config_split_vs_monolith_parit
 echo "P5-T3: 交叉编译产物目录下执行: tests/integration/check_uvctest_and_lib_deps.sh <build-dir>"
 echo "      （另: tests/integration/check_libmy_uvc_soname_exports.sh <build-dir>）"
 echo "P5-T1: 人工执行 docs/TEST_CHECKLIST_CN.md，结果记入 tests/integration/record_release_regression.md"
+echo "板端集成（P1/P2 §闸口）脚本示例: tests/integration/board_libmy_uvc_submit_smoke.sh check, board_uvctest_parity_regression.sh check"
 echo ""
 echo "run_p5_host_smoke: ok"

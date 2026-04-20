@@ -15,6 +15,8 @@ All notable changes to this project are documented here. The format is informal;
 
 - **P0-T3**: **`tests/integration/board_userdata_config_present_smoke.sh`** — `check`：仓库 **`config/`** 下分文件 ini + **`README_CONFIG.md`** 存在且安装脚本含分文件推送；`board`：adb（或设备本机 **`/userdata`**）断言四份 ini 已部署可读；无设备时与 **`doc_deploy_walkthrough_smoke.sh board`** 相同跳过策略。
 
+- **P1-I1 / P1-I2 / P2-I1 / P2-I3（集成脚本补全）**：**`tests/integration/board_libmy_uvc_submit_smoke.sh`**（`check|smoke`，MJPEG `sent=` / `open uvc` 标记）；**`board_usb_replug_channel_submit.sh`**（`check|steps`，**`TEST_CHECKLIST_CN.md` §4.4** 拔插步骤）；**`board_uvctest_parity_regression.sh`**（`check|smoke`，H.264+MJPEG 短时矩阵 + CTest 指针）；**`board_usb_multichannel_remap.sh`**（`check|smoke`，多路 `channel N mapped video_id=`）。均在板端 UVC + 媒体路径就绪时跑 **`smoke`**；宿主机可只跑 **`check`** 核对命令。
+
 - **uvctest CLI**: `--pip-enable 0` is no longer overridden by later `--pip-overlay` / `--pip-*` (previously `merge_cli_into_config` and `parse_cli` forced `pip_enable=true` when overlay was set). Unit test extended in **`test_uvctest_cli_overrides_ini`**.
 
 - **P4-T1**: `load_app_config_section_from_file()` in `app_config` — merge a single ini applying only one `[section]`; tests `test_my_uvc_ini_section_loader` + `tests/integration/board_ini_loader_parity_smoke.sh`. **`my_uvc_load_ini_section_only()`** in `my_uvc.h` / `src/core/my_uvc_load_ini_section_c.cpp` (C ABI on `libmy_uvc`); unit test `test_my_uvc_load_ini_section_c_api`. Submit path uses `my_uvc_resolve_video_id_for_submit()` + test hook `my_uvc_test_set_video_id_hook()` in `src/core/my_uvc_video_id_resolve.cpp` (**P1-U3** / `test_my_uvc_channel_video_stub`).
