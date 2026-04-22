@@ -21,11 +21,7 @@ if [[ "${1:-}" == "board" ]]; then
 			exit 1
 		fi
 	done
-	if [[ -f /userdata/my_uvc.ini ]]; then
-		echo "board_config_directory_load_smoke: ok (split + legacy my_uvc.ini present under /userdata)"
-	else
-		echo "board_config_directory_load_smoke: ok (split configs under /userdata; optional my_uvc.ini not found)"
-	fi
+	echo "board_config_directory_load_smoke: ok (split configs libmy_uvc.ini / libmy_uvc_pip.ini / uvctest.ini under /userdata)"
 	exit 0
 fi
 

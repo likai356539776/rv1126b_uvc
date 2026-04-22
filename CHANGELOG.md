@@ -4,18 +4,27 @@ All notable changes to this project are documented here. The format is informal;
 
 ## [Unreleased]
 
+### Configuration
+
+- **移除** 仓库 **`config/my_uvc.ini`**。板端与文档默认 **`uvctest -c /userdata`**（合并 `libmy_uvc.ini`、`libmy_uvc_pip.ini`、`uvctest.ini`）。**`select_profile --install`** 下发路径改为 **`/userdata/profile.ini`**。目录模式下若三者均不存在则 **`load_app_config` 失败**（不再回退 `my_uvc.ini`）。
+
+### PiP helper (P3)
+
+- **`pip_helper_composite_opts_t.tile_nv12_updated`**：按槽位标记新帧；非 NULL 时未更新槽可省略 `tile_nv12[i]`，库内 NV12 缓存 + **`pip_overlay_stale_timeout_ms`** 与主讲人策略一致，超时该格不叠画。
+- **`pip_mjpeg_decode_jpeg_file_rgb`**：用 `std::ifstream` + **`pip_mjpeg_decode_jpeg_rgb`**，去掉 **`fopen`**（**P3-I4** `check_pip_helper_no_product_fopen.sh --strict`）。
+- **CMake `MY_UVC_PIP_HELPER_TRANSITIONAL_IO`**（默认 ON）：OFF 时不从 **`pip_overlay_path`** 预载 overlay，并预分配主讲人 NV12 缓冲区供纯 API 路径使用。
+- **集成**：**`tests/integration/board_pip_stale_and_n_active_smoke.sh`**（**P3-I5**）；**`run_p3_host_smoke.sh` / `run_p5_host_smoke.sh`** 对 fopen 检查均带 **`--strict`**。
+
 ### AppConfig (P2-T3)
 
 - **`AppConfig`** 拆为 **`libmy_uvc`**（`LibmyUvcIniFields`）、**`libmy_uvc_pip`**（`LibmyUvcPipIniFields`）、**`uvctest`**（`UvctestIniFields`），与 **`config/libmy_uvc.ini` / `libmy_uvc_pip.ini` / `uvctest.ini`** 一一对应；`app_config.cpp` 与各消费者已迁命名成员。说明见 **`config/README_CONFIG.md`**；**`my_uvc.h`** / **`pip_helper.h`** / **`uvctest_cli.hpp`** 补充交叉引用。
-
-### Configuration
 
 - PiP overlay window defaults: **`pip_w`×`pip_h` = 640×480**（左上角小窗分辨率；`default_app_config()`、profiles、文档与板端集成脚本 CLI 已对齐）。
 - Default **canvas** resolution set to **1920×1080** in `default_app_config()`, USB/scripts defaults (`my_uvc_usb_config.sh`, `select_profile.sh`, `probe_uvc_node_mapping.sh`), product **profiles** (`config/profiles/*.ini`), unit tests, PiP integration scripts’ `SIZE`, and docs (`REQUIREMENTS.md`, `docs/README.md`, `TEST_CHECKLIST*.md`, `HANDOVER.md`). MJPEG multi-channel matrix in `docs/README.md` §3 remains a **640×480** bandwidth reference; 1080p requires re-tuning `--mjpeg-max-frame-size`.
 
 ### Tooling / integration
 
-- **P0-T2**: **`test_app_config_ini_merge`** — 宿主机断言目录合并（`libmy_uvc.ini` → `libmy_uvc_pip.ini` → `uvctest.ini`）、同区段后文件覆盖、`my_uvc.ini` 回退、非法键拒收；集成脚本 **`tests/integration/board_config_directory_load_smoke.sh`**（默认跑 CTest；`board` 检查 `/userdata` 下分文件）。已纳入 **`scripts/run_unit_tests_host.sh`**。
+- **P0-T2**: **`test_app_config_ini_merge`** — 宿主机断言目录合并（`libmy_uvc.ini` → `libmy_uvc_pip.ini` → `uvctest.ini`）、同区段后文件覆盖、**目录无分文件时失败**、非法键拒收；集成脚本 **`tests/integration/board_config_directory_load_smoke.sh`**（默认跑 CTest；`board` 检查 `/userdata` 下分文件）。已纳入 **`scripts/run_unit_tests_host.sh`**。
 
 - **P0-T3**: **`tests/integration/board_userdata_config_present_smoke.sh`** — `check`：仓库 **`config/`** 下分文件 ini + **`README_CONFIG.md`** 存在且安装脚本含分文件推送；`board`：adb（或设备本机 **`/userdata`**）断言四份 ini 已部署可读；无设备时与 **`doc_deploy_walkthrough_smoke.sh board`** 相同跳过策略。
 

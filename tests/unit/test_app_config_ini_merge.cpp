@@ -75,6 +75,11 @@ stats_interval_sec = 12
 		return false;
 	if (cfg.libmy_uvc_pip.pip_jpeg_quality != 77 || cfg.libmy_uvc_pip.pip_overlay_path != "/tmp/bg_p0t2.jpg")
 		return false;
+	if (cfg.libmy_uvc_pip.pip_overlay_stale_timeout_ms != 5000)
+		return false;
+	if (cfg.libmy_uvc_pip.pip_tile_n_tiles != 0 || cfg.libmy_uvc_pip.pip_tile_gap_px != 0 ||
+	    cfg.libmy_uvc_pip.pip_tile_margin_px != 0)
+		return false;
 
 	fs::remove_all(root);
 	return true;
@@ -119,16 +124,18 @@ h264_path = /override/path.h264
 		return false;
 	if (cfg.uvctest.h264_path != "/override/path.h264")
 		return false;
+	if (cfg.libmy_uvc_pip.pip_overlay_stale_timeout_ms != 5000)
+		return false;
 
 	fs::remove_all(root);
 	return true;
 }
 
-/** 目录中无三件套分文件时回退为同目录下 my_uvc.ini（legacy monolithic）。 */
-static bool test_legacy_monolithic_in_directory_only()
+/** 目录模式下必须存在至少一个分文件；仅含旧 my_uvc.ini 时失败。 */
+static bool test_directory_requires_split_ini()
 {
 	const fs::path root = fs::temp_directory_path() /
-	                      (std::string("uvc_cfg_p0t2_legacy_") + std::to_string(getpid()));
+	                      (std::string("uvc_cfg_p0t2_nosplit_") + std::to_string(getpid()));
 	fs::remove_all(root);
 	fs::create_directories(root);
 
@@ -136,33 +143,15 @@ static bool test_legacy_monolithic_in_directory_only()
 channels = 1
 width = 800
 height = 600
-fps = 20
-idle_sleep_ms = 9
-video_codec = mjpeg
-h264_path = /legacy/clip.h264
-log_every_frames = 33
-pip_enable = 1
-pip_x = 5
-pip_y = 6
-pip_w = 100
-pip_h = 80
-pip_jpeg_quality = 80
-pip_overlay_path = /legacy/o.jpg
 )";
 	if (write_file(root / "my_uvc.ini", mono))
 		return false;
 
 	AppConfig cfg{};
 	std::string err;
-	if (!load_app_config(root.string(), &cfg, &err))
+	if (load_app_config(root.string(), &cfg, &err))
 		return false;
-	if (cfg.libmy_uvc.channels != 1 || cfg.libmy_uvc.width != 800 || cfg.libmy_uvc.height != 600)
-		return false;
-	if (cfg.libmy_uvc.video_codec != "mjpeg" || cfg.libmy_uvc.fps != 20)
-		return false;
-	if (cfg.uvctest.h264_path != "/legacy/clip.h264" || cfg.uvctest.log_every_frames != 33)
-		return false;
-	if (!cfg.libmy_uvc_pip.pip_enable || cfg.libmy_uvc_pip.pip_x != 5)
+	if (err.find("libmy_uvc.ini") == std::string::npos)
 		return false;
 
 	fs::remove_all(root);
@@ -205,7 +194,7 @@ int main()
 		return 1;
 	if (!test_later_file_overrides_same_section())
 		return 1;
-	if (!test_legacy_monolithic_in_directory_only())
+	if (!test_directory_requires_split_ini())
 		return 1;
 	if (!test_reject_pip_key_in_libmy_uvc_section())
 		return 1;

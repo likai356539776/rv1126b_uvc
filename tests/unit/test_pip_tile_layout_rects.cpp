@@ -8,6 +8,7 @@ using my_uvc_pip::PipTileLayoutSpec;
 using my_uvc_pip::PipTileRect;
 using my_uvc_pip::kPipTileLayoutMax;
 using my_uvc_pip::pip_tile_layout_bottom_third;
+using my_uvc_pip::pip_tile_rect_nv12_plane_wh;
 
 int main()
 {
@@ -33,6 +34,26 @@ int main()
 		return 1;
 	if (r[3].x != m + 3 * (tw + g))
 		return 1;
+	{
+		int ow = 0;
+		int oh = 0;
+		if (!pip_tile_rect_nv12_plane_wh(r[0], &ow, &oh))
+			return 1;
+		const size_t nv12 = static_cast<size_t>(ow) * static_cast<size_t>(oh) * 3 / 2;
+		if (ow <= 0 || oh <= 0 || nv12 == 0)
+			return 1;
+	}
+
+	/* RGA：偶宽且非 4 对齐时须降到 4 倍数（如 945→944×340） */
+	{
+		PipTileRect odd{};
+		odd.w = 945;
+		odd.h = 340;
+		int nw = 0;
+		int nh = 0;
+		if (!pip_tile_rect_nv12_plane_wh(odd, &nw, &nh) || nw != 944 || nh != 340)
+			return 1;
+	}
 
 	/* 10 tiles: 8 + 2 */
 	const PipTileLayoutSpec s10{1920, 1080, 10, 2, 4};

@@ -23,7 +23,7 @@ need_f()
 run_check()
 {
 	# 与 my_uvc_install_to_device.sh「分目录部署」循环、CMake install(FILES … config/ …) 对齐
-	for f in libmy_uvc.ini libmy_uvc_pip.ini uvctest.ini my_uvc.ini README_CONFIG.md; do
+	for f in libmy_uvc.ini libmy_uvc_pip.ini uvctest.ini README_CONFIG.md; do
 		need_f "${ROOT}/config/${f}"
 	done
 	if ! grep -q 'libmy_uvc.ini' "${ROOT}/my_uvc_install_to_device.sh"; then
@@ -39,7 +39,7 @@ verify_userdata_remote()
 	if [[ -n "${ADB_SERIAL:-}" ]]; then
 		adb_cmd=(adb -s "${ADB_SERIAL}")
 	fi
-	for f in libmy_uvc.ini libmy_uvc_pip.ini uvctest.ini my_uvc.ini; do
+	for f in libmy_uvc.ini libmy_uvc_pip.ini uvctest.ini; do
 		if ! "${adb_cmd[@]}" shell "test -f /userdata/${f} && test -r /userdata/${f}" 2>/dev/null; then
 			echo "board_userdata_config_present_smoke: FAIL missing or unreadable /userdata/${f} (run my_uvc_install_to_device.sh?)"
 			exit 1
@@ -50,7 +50,7 @@ verify_userdata_remote()
 
 verify_userdata_local()
 {
-	for f in libmy_uvc.ini libmy_uvc_pip.ini uvctest.ini my_uvc.ini; do
+	for f in libmy_uvc.ini libmy_uvc_pip.ini uvctest.ini; do
 		if [[ ! -f "/userdata/${f}" || ! -r "/userdata/${f}" ]]; then
 			echo "board_userdata_config_present_smoke: FAIL missing or unreadable /userdata/${f}"
 			exit 1

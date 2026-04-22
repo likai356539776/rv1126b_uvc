@@ -33,7 +33,7 @@
 
 | 任务 ID | 子任务 | 状态 | 单元测试建议 | 集成测试建议 |
 |---------|--------|------|--------------|--------------|
-| **P0-T1** | 拆分 `libmy_uvc.ini` / `libmy_uvc_pip.ini` / `uvctest.ini`，保留 `my_uvc.ini` | 完成 | — | 手动：`-c` 目录与单文件加载 |
+| **P0-T1** | 拆分 `libmy_uvc.ini` / `libmy_uvc_pip.ini` / `uvctest.ini`；仓库移除 `config/my_uvc.ini`，目录加载不回退 | 完成 | — | `-c /userdata` 或 `-c profile.ini` |
 | **P0-T2** | `load_app_config`：目录合并、区段校验、legacy 回退 | 完成 | **`tests/unit/test_app_config_ini_merge.cpp`**（样例 ini → `AppConfig` 断言） | **`tests/integration/board_config_directory_load_smoke.sh`**（板端；可选宿主机测目录存在性） |
 | **P0-T3** | `config/README_CONFIG.md`、CMake `install`、安装脚本推送多文件 | 完成 | — | **`tests/integration/board_userdata_config_present_smoke.sh`**（部署后检查） |
 
@@ -111,17 +111,52 @@
 
 ## 5. 阶段 3 — `libmy_uvc_pip_helper.a`
 
+**与 [LIBMY_UVC_REFACTOR_DESIGN.md](./LIBMY_UVC_REFACTOR_DESIGN.md) v1.12（§2.4 / §2.5 / §3.8）对齐**：`pip_helper` **每帧仅经 API 入参**；**v1 合成输入仅 NV12**（背图、主讲人、N 路 tile；元数据以 `pip_helper.h` 为准）；**v1 不接受压缩帧入参**；**产品路径下库内不读盘**；**`uvctest` 负责全部文件 I/O 与解码至 NV12** 再调库。
+
+### 5.0 实施前：任务与测试重排（**建议，设计 v1.12**）
+
+在按 **v1.12** 大改 `pip_helper` / `uvctest` 之前，**宜**先重排实现里程碑与自动化验收，避免 **P3-T3 单条过大**、旧板测脚本仍假设 **库内读路径 / 单 MJPEG overlay**。
+
+**任务拆分（建议将原 P3-T3 落地为有序里程碑；合并进 PR 时可仍引用 P3-T3）**
+
+| 里程碑 | 内容摘要 | 依赖 |
+|--------|----------|------|
+| **P3-M1** | **`pip_helper.h` / `pip_helper_config_t`**：`n_tiles`、`n_active` 语义、**`pip_overlay_stale_timeout_ms`（-1/0/>0）**、每帧入参描述符（NV12 指针/stride/「本路是否更新」） | P3-T2 |
+| **P3-M2** | **库内每路 NV12 缓存 + 单调时钟 + 超时状态机**（冻结 / 露背图）；**无产品路径 fopen**；过渡代码标 `deprecated` | P3-M1 |
+| **P3-M3** | **RGA/MPP 合成**：背图 + 主讲人 + 前 `n_active` 路 tile；余格与超时路露背图 | P3-M2 |
+| **P3-M4** | **输出 MJPEG**；与 **§3.3** 一致的层更新 **拷贝** | P3-M3 |
+| **P3-M5** | 移除或隔离 **库内 `pip_overlay_path` 预载**；**`uvctest`** 独揽读盘与解码至 NV12 | P3-M4 + P3-T7 |
+
+**新增 / 强化的单元测试（宿主机 CTest）**
+
+| 测试 ID | 建议文件 | 内容 |
+|---------|----------|------|
+| **P3-U4** | `tests/unit/test_pip_stale_timeout_policy.cpp`（新） | **超时语义**：`-1`→5000、`0` 禁用、正数自定义；**无新帧**时间推进后是否判 **露背图**（可用注入时钟或纯函数状态机） |
+| **P3-U5** | `tests/unit/test_pip_ini_stale_timeout_parse.cpp`（新） | **`[libmy_uvc_pip]`**：键缺省、`0`、正整数 → `AppConfig` / 桥接 `pip_helper_config_t` 与 **v1.12** 一致 |
+| **P3-U6** | `tests/unit/test_pip_compose_nv12_offline.cpp`（新，可选） | **无 MPP/RGA**：纯软或 stub 拼像素，验证 **`n_active`**、余格背图、某路超时后不叠（与 **P3-U3** 互补） |
+
+**新增 / 强化的集成与自动化**
+
+| 测试 ID | 建议文件 | 环境 | 内容 |
+|---------|----------|------|------|
+| **P3-I4** | `tests/integration/check_pip_helper_no_product_fopen.sh`（新） | **宿主机 / SDK** | 对 **发布配置** 下 `libmy_uvc_pip_helper.a` 或链接产物做 **符号/反汇编粗检**（或 CI 规则：**产品编译不编译 `deprecated` 路径**）；与 **P3-T3 验收** 一致 |
+| **P3-I5** | `tests/integration/board_pip_stale_and_n_active_smoke.sh`（新） | **板端** | **断流冻结**、**超时露背图**、**`n_active` 变化**；可配合缩短超时 ini 避免等满 5 s |
+| **脚本** | `scripts/run_p3_host_smoke.sh`（新，可选） | 宿主机 | **P3-U1～U6** + **P3-I4**（不跑板测）；供合并前快速闸口 |
+| **登记** | `tests/integration/record_release_regression.md` | — | 增加 **P3-I4 / P3-I5** 行，与 **P5-T1** 清单交叉引用 |
+
+**阶段 3 完成定义（v1.12 版，在 §5.1 表完成后生效）**：**P3-T1～T7** + **P3-U1～U3** + **P3-U4～U5（建议必做）** + **P3-U6（可选）** + **P3-I1～I3** + **P3-I4（建议必做）** + **P3-I5（板端建议必做）**；并与 **设计 v1.12**、**`docs/TEST_CHECKLIST_CN.md`** 中 PiP / 断流相关条同步。
+
 ### 5.1 子任务列表
 
 | 任务 ID | 子任务 | 依赖 | 交付物 |
 |---------|--------|------|--------|
 | **P3-T1** | `add_library(my_uvc_pip_helper STATIC …)`，`src/pip_helper/`，**不**链接 `libmy_uvc` | P2 | `libmy_uvc_pip_helper.a` |
 | **P3-T2** | `include/my_uvc_pip/pip_helper.h`：`pip_helper_create(channel_id, …)`、destroy、**每 channel 一实例**（§9 ④） | P3-T1 | API 定稿 |
-| **P3-T3** | 迁移/重构 `pip_mjpeg` / `mpp_jpeg` 至 pip_helper；背图 JPEG/YUV/H.264、主讲人、下三分之一网格（§2.4） | P3-T2 | 功能与定稿一致 |
+| **P3-T3** | 迁移/重构 `pip_mjpeg` / `mpp_jpeg` 至 pip_helper；**合成入口仅以每帧 API 入参为准**，且 **v1 全部为 NV12**：**背图** + **主讲人** + **下三分之一**：布局 **`n_tiles`（1～16）**，每帧 **`n_active`（0～`n_tiles`）** 仅叠 **前 `n_active` 路** tile，**余格露背图**。**主讲人 / 各路 tile**：**无新数据沿用库内上一帧**；超过 **`pip_overlay_stale_timeout_ms`（create：**`-1`**=缺省 5000，**`0`**=禁用，**`>0`**=毫秒；§2.4 v1.12）** 仍无新数据则 **该路露背图**（库内 **NV12 拷贝**、**单调时钟**）。宽高/stride 等以 `pip_helper.h` 为准。**验收**：第三方仅链库时 **无需也不应** 依赖 `pip_helper` 内对 `pip_overlay_path` 等路径的读文件；**v1 不接受 JPEG/H.264 等压缩缓冲作为合成入参**；若仓库仍保留过渡路径预载，须标 **deprecated** 并计划删除。H.264/MJPEG/YUV 等 **在应用内解码并缩放到约定 NV12** 再传入。布局与 §2.4 一致。 | P3-T2 | 与 **设计 v1.12** 一致；**NV12 + `n_active` + 断流策略 + 可配超时**；**无产品级库内读盘** |
 | **P3-T4** | 输出 **MJPEG 帧**缓冲 + 长度；由应用调用 `my_uvc_submit_mjpeg(channel_id, …)` | P3-T3 | 方案 B 边界 |
 | **P3-T5** | `pip_enable=0`：**不调用** compose，快速返回或 no-op（§9 ③） | P3-T4 | 无多余编码 |
-| **P3-T6** | 配置：`PipHelperConfig` 与 `[libmy_uvc_pip]` 对齐；旧键映射主讲人矩形（§3.8） | P3-T2 | ini 与头文件注释同步 |
-| **P3-T7** | `uvctest`：PiP 路径 **compose → submit**；非 PiP 路径绕过 pip_helper | P3-T5 | 端到端 |
+| **P3-T6** | 配置：`PipHelperConfig` / `LibmyUvcPipIniFields` 与 **`[libmy_uvc_pip]`** 对齐：含 **`pip_overlay_stale_timeout_ms`**（ini：键缺省→5000，`0`=禁用；**`pip_helper_create`**：**`-1`**=库缺省 5000，见设计 **v1.12**）、旧键主讲人矩形（§3.8）；**路径类键** 归属 **`uvctest`/示例**（§2.5） | P3-T2 | ini、`app_config`、**`pip_helper.h`** 同步 |
+| **P3-T7** | **`uvctest`**：PiP 路径上 **应用内** 完成素材 **读文件 + 解码至 NV12**（H.264/YUV/JPEG 等，含缩放），将 **背图**、**主讲人/tile 新帧或断流** 按 API 传入（**`n_active`**、**`pip_overlay_stale_timeout_ms`** 等）→ **`pip_helper` compose** → **`my_uvc_submit_mjpeg`**；须可验证 **冻结**、**超时露背图**、**ini 改超时**、**`-1`/缺省 create 行为**。非 PiP 路径绕过 `pip_helper`。**验收**：端到端 **不依赖** `pip_helper` 内部读盘；**与 v1.12** 一致。 | P3-T5 | 端到端；**I/O 与解码仅在 uvctest** |
 
 ### 5.2 单元测试（阶段 3）
 
@@ -139,7 +174,7 @@
 | **P3-I2** | `tests/integration/board_pip_per_channel_isolation.sh` | 多 **`channel_id`**，pip 状态 **不串扰**（§9 ④） |
 | **P3-I3** | `tests/integration/board_pip_longrun_stress.sh` | **长稳**：泄漏/死锁（可与 **P5** 合并执行） |
 
-**阶段 3 完成定义**：P3-T1～T7 + P3-U1～U2（+U3 可选）+ P3-I1～I3。
+**阶段 3 完成定义**：以 **§5.0（v1.12 版）** 为准（含 **P3-U4/U5、P3-I4/I5** 建议项）；简述：**P3-T1～T7** + **P3-U1～U3** + **§5.0 所列增量单测/集成** + **P3-I1～I3**；且 **P3-T3 / P3-T7** 满足 **设计 v1.12**。
 
 ---
 
@@ -160,7 +195,7 @@
 | 任务 ID | 子任务 | 用例文件 / 说明 |
 |---------|--------|-------------------|
 | **P5-T1** | （已完成，2026-04-17）**`docs/TEST_CHECKLIST_CN.md`** + 记录 **`tests/integration/record_release_regression.md`** | 见该文件汇总表 |
-| **P5-T2** | （已完成，宿主机）**分文件 ini 目录** vs **单文件 `my_uvc.ini`** — CTest **`test_app_config_path_directory_vs_file`**；可单独 **`board_config_split_vs_monolith_parity.sh`** | 已纳入 **`scripts/run_p5_host_smoke.sh`** |
+| **P5-T2** | （已完成，宿主机）**分文件 ini 目录** vs **单文件合并 ini**（`merged.ini` / profile）— CTest **`test_app_config_path_directory_vs_file`**；可单独 **`board_config_split_vs_monolith_parity.sh`** | 已纳入 **`scripts/run_p5_host_smoke.sh`** |
 | **P5-T3** | （已完成，2026-04-17）交叉编译 **`build-rv1126b`**：**`check_uvctest_and_lib_deps.sh`** + **`check_libmy_uvc_soname_exports.sh`** | 见 **`record_release_regression.md`** |
 | **P5-T4** | （已完成）CI：**`.github/workflows/my_uvc_unit_tests.yml`**；本地：**`scripts/run_unit_tests_host.sh`**；合并入口：**`scripts/run_p5_host_smoke.sh`** |
 
@@ -190,6 +225,13 @@ P0 ──► P1（libmy_uvc.so）──► P2（uvctest）
 | v1.1 | 2026-04-17 | **§1.1** 用例文件与目录约定；各 **P\*-U\*/I\*** 建议 **文件名** |
 | v1.2 | 2026-04-17 | **§7 P5**：`run_p5_host_smoke.sh`、`record_release_regression.md` 更新 |
 | v1.3 | 2026-04-17 | **P5-T1 / P5-T3** 已在 **`record_release_regression.md`** 登记通过 |
+| v1.4 | 2026-04-21 | **P3-T3 / P3-T7** 与 **设计 v1.7** 对齐：**API 入参合成**、**无产品级库内读盘**；§5 阶段 3 引言 + **P3-T6** 路径键归属说明；**阶段 3 完成定义** 增补验收条 |
+| v1.5 | 2026-04-21 | 对齐 **设计 v1.8**：§5 引言与 **P3-T3 / P3-T7**、**阶段 3 完成定义** 写明 **NV12 唯一入参**、**压缩帧不入 v1 合成 API** |
+| v1.6 | 2026-04-21 | 对齐 **设计 v1.9**：**`n_tiles` + 每帧 `n_active`**（余格露背图）；§5 引言版本号、**P3-T3 / P3-T7**、**阶段 3 完成定义** |
+| v1.7 | 2026-04-21 | 对齐 **设计 v1.10**：**断流沿用上一帧**、**≥5 s 无数据该路露背图**；§5 引言、**P3-T3 / P3-T7**、**阶段 3 完成定义**、§7 设计交叉引用 |
+| v1.8 | 2026-04-21 | 对齐 **设计 v1.11**：**`pip_overlay_stale_timeout_ms`** 在 **`[libmy_uvc_pip]`** 与 **`pip_helper_config_t`** 可配（缺省 5000，`0`）；**P3-T6** 扩展；`libmy_uvc_pip.ini` / `README_CONFIG` |
+| v1.9 | 2026-04-21 | 对齐 **设计 v1.12**：**create `-1` = 缺省 5000**（问题 6 选 A），**`0` = 禁用**；**memset 陷阱**；**P3-T6**、§5 引言 |
+| v2.0 | 2026-04-21 | **§5.0 实施前重排**：**P3-M1～M5** 里程碑；**P3-U4～U6**、**P3-I4～I5**、`run_p3_host_smoke.sh`；**阶段 3 完成定义 v1.12 版**；§10 速查表扩展 |
 
 后续若裁剪范围或增加 CI 任务，请同步更新本文档与 **[LIBMY_UVC_REFACTOR_DESIGN.md](./LIBMY_UVC_REFACTOR_DESIGN.md)** 的 §7。
 
@@ -212,6 +254,9 @@ P0 ──► P1（libmy_uvc.so）──► P2（uvctest）
 | `tests/unit/test_pip_tile_layout_rects.cpp` | P3-U1 |
 | `tests/unit/test_pip_helper_config_defaults.cpp` | P3-U2 |
 | `tests/unit/test_pip_compose_offline_golden.cpp` | P3-U3（可选） |
+| `tests/unit/test_pip_stale_timeout_policy.cpp` | P3-U4（建议） |
+| `tests/unit/test_pip_ini_stale_timeout_parse.cpp` | P3-U5（建议） |
+| `tests/unit/test_pip_compose_nv12_offline.cpp` | P3-U6（可选） |
 | `tests/unit/test_my_uvc_ini_section_loader.cpp` | P4-T1（可选 API） |
 | `tests/unit/test_my_uvc_load_ini_section_c_api.cpp` | P4-T1（C API） |
 
@@ -230,6 +275,9 @@ P0 ──► P1（libmy_uvc.so）──► P2（uvctest）
 | `tests/integration/board_pip_on_off_compare.sh` | P3-I1 |
 | `tests/integration/board_pip_per_channel_isolation.sh` | P3-I2 |
 | `tests/integration/board_pip_longrun_stress.sh` | P3-I3 |
+| `tests/integration/check_pip_helper_no_product_fopen.sh` | P3-I4（建议） |
+| `tests/integration/board_pip_stale_and_n_active_smoke.sh` | P3-I5（建议） |
+| `scripts/run_p3_host_smoke.sh` | §5.0 宿主机闸口（可选） |
 | `tests/integration/board_ini_loader_parity_smoke.sh` | P4-T1 |
 | `tests/integration/doc_deploy_walkthrough_smoke.sh` | P4-T2（可选） |
 | `tests/integration/board_select_profile_uvc_binary_smoke.sh` | P4-T3 |

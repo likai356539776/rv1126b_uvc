@@ -132,6 +132,33 @@ bool apply_config_kv(const std::string &section, const std::string &key, const s
 			return false;
 		}
 		cfg->uvctest.log_every_frames = v;
+	} else if (key == "pip_tile_test_nv12_paths") {
+		if (!allow_test)
+			return reject_key("pip_tile_test_nv12_paths");
+		matched = true;
+		cfg->uvctest.pip_tile_test_nv12_paths = val;
+	} else if (key == "pip_tile_test_nv12_src_w") {
+		if (!allow_test)
+			return reject_key("pip_tile_test_nv12_src_w");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 0 || v > 8192) {
+			if (err)
+				*err = "invalid pip_tile_test_nv12_src_w at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->uvctest.pip_tile_test_nv12_src_w = v;
+	} else if (key == "pip_tile_test_nv12_src_h") {
+		if (!allow_test)
+			return reject_key("pip_tile_test_nv12_src_h");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 0 || v > 8192) {
+			if (err)
+				*err = "invalid pip_tile_test_nv12_src_h at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->uvctest.pip_tile_test_nv12_src_h = v;
 	} else if (key == "idle_sleep_ms") {
 		if (!allow_core)
 			return reject_key("idle_sleep_ms");
@@ -321,6 +348,50 @@ bool apply_config_kv(const std::string &section, const std::string &key, const s
 			return false;
 		}
 		cfg->libmy_uvc_pip.pip_jpeg_quality = v;
+	} else if (key == "pip_overlay_stale_timeout_ms") {
+		if (!allow_pip)
+			return reject_key("pip_overlay_stale_timeout_ms");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 0) {
+			if (err)
+				*err = "invalid pip_overlay_stale_timeout_ms at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->libmy_uvc_pip.pip_overlay_stale_timeout_ms = v;
+	} else if (key == "pip_tile_n_tiles") {
+		if (!allow_pip)
+			return reject_key("pip_tile_n_tiles");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 0 || v > kMaxUvcChannels) {
+			if (err)
+				*err = "invalid pip_tile_n_tiles at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->libmy_uvc_pip.pip_tile_n_tiles = v;
+	} else if (key == "pip_tile_gap_px") {
+		if (!allow_pip)
+			return reject_key("pip_tile_gap_px");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 0) {
+			if (err)
+				*err = "invalid pip_tile_gap_px at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->libmy_uvc_pip.pip_tile_gap_px = v;
+	} else if (key == "pip_tile_margin_px") {
+		if (!allow_pip)
+			return reject_key("pip_tile_margin_px");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 0) {
+			if (err)
+				*err = "invalid pip_tile_margin_px at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->libmy_uvc_pip.pip_tile_margin_px = v;
 	} else if (key == "h264_path") {
 		if (!allow_test)
 			return reject_key("h264_path");
@@ -503,6 +574,8 @@ AppConfig default_app_config() {
 	cfg.uvctest.stats_interval_sec = 5;
 	cfg.libmy_uvc.video_codec = "h264";
 	cfg.uvctest.h264_path = "/userdata/200frames_count.h264";
+	cfg.uvctest.pip_tile_test_nv12_src_w = 0;
+	cfg.uvctest.pip_tile_test_nv12_src_h = 0;
 	cfg.libmy_uvc_pip.pip_enable = false;
 	cfg.libmy_uvc_pip.pip_overlay_path.clear();
 	cfg.libmy_uvc_pip.pip_x = 20;
@@ -510,6 +583,10 @@ AppConfig default_app_config() {
 	cfg.libmy_uvc_pip.pip_w = 640;
 	cfg.libmy_uvc_pip.pip_h = 480;
 	cfg.libmy_uvc_pip.pip_jpeg_quality = 85;
+	cfg.libmy_uvc_pip.pip_overlay_stale_timeout_ms = 5000;
+	cfg.libmy_uvc_pip.pip_tile_n_tiles = 0;
+	cfg.libmy_uvc_pip.pip_tile_gap_px = 0;
+	cfg.libmy_uvc_pip.pip_tile_margin_px = 0;
 	for (int i = 0; i < kMaxUvcChannels; i++) {
 		cfg.uvctest.channel_fps[i] = cfg.libmy_uvc.fps;
 		cfg.uvctest.channel_h264_path[i] = cfg.uvctest.h264_path;
@@ -539,12 +616,9 @@ bool load_app_config(const std::string &path, AppConfig *cfg, std::string *err) 
 			loaded++;
 		}
 		if (loaded == 0) {
-			fs::path legacy = fs::path(path) / "my_uvc.ini";
-			if (fs::is_regular_file(legacy, ec)) {
-				if (!load_app_config_file_merge(legacy.string(), cfg, err))
-					return false;
-				loaded++;
-			}
+			if (err)
+				*err = "config directory has none of libmy_uvc.ini, libmy_uvc_pip.ini, uvctest.ini: " + path;
+			return false;
 		}
 		finalize_channel_defaults(cfg);
 		return true;

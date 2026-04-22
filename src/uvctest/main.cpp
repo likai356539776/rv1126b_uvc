@@ -1,9 +1,11 @@
 #include "app_config.h"
 #include "my_uvc/my_uvc.h"
 #include "my_uvc_pip/pip_helper.h"
+#include "my_uvc_pip/pip_tile_layout.hpp"
 #include "uvctest/libmy_uvc_config_bridge.hpp"
 #include "uvctest/uvctest_cli.hpp"
 
+#include <array>
 #include <atomic>
 #include <algorithm>
 #include <chrono>
@@ -248,6 +250,14 @@ struct StreamChannelContext {
 	int pip_w;
 	int pip_h;
 	int pip_jpeg_quality;
+	int pip_overlay_stale_timeout_ms;
+	int pip_tile_n_tiles;
+	int pip_tile_gap_px;
+	int pip_tile_margin_px;
+	/** [uvctest] pip_tile_test_nv12_paths — 逗号分隔 NV12 裸文件，与槽位顺序一致。 */
+	std::string pip_tile_test_nv12_paths;
+	int pip_tile_test_nv12_src_w;
+	int pip_tile_test_nv12_src_h;
 	std::vector<NalRange> nals;
 	std::vector<FrameRange> frames;
 	size_t sps_idx;
@@ -266,6 +276,105 @@ struct ChannelStats {
 
 	ChannelStats() : channel_id(-1), video_id(-1), target_fps(0), total_frames(0), error_count(0), stream_on(0) {}
 };
+
+static std::vector<std::string> split_comma_paths(const std::string &s)
+{
+	std::vector<std::string> out;
+	size_t start = 0;
+	while (start < s.size()) {
+		const size_t comma = s.find(',', start);
+		std::string part =
+		    (comma == std::string::npos) ? s.substr(start) : s.substr(start, comma - start);
+		while (!part.empty() && (part.front() == ' ' || part.front() == '\t'))
+			part.erase(part.begin());
+		while (!part.empty() && (part.back() == ' ' || part.back() == '\t'))
+			part.pop_back();
+		if (!part.empty())
+			out.push_back(std::move(part));
+		if (comma == std::string::npos)
+			break;
+		start = comma + 1;
+	}
+	return out;
+}
+
+static size_t pip_tile_nv12_byte_size(const my_uvc_pip::PipTileRect &r)
+{
+	int ow = 0;
+	int oh = 0;
+	if (!my_uvc_pip::pip_tile_rect_nv12_plane_wh(r, &ow, &oh))
+		return 0;
+	return static_cast<size_t>(ow) * static_cast<size_t>(oh) * 3 / 2;
+}
+
+/**
+ * 按槽顺序加载 NV12 测试文件；n_active = min(路径数, tile_n_tiles)。失败时返回 false。
+ */
+static bool uvctest_load_pip_tile_nv12_test(const StreamChannelContext &ch, int tile_n_tiles,
+                                            std::vector<std::vector<uint8_t>> *buffers,
+                                            std::vector<const uint8_t *> *row_ptrs, int *n_active_out)
+{
+	buffers->clear();
+	row_ptrs->clear();
+	*n_active_out = 0;
+	if (tile_n_tiles <= 0 || ch.pip_tile_test_nv12_paths.empty())
+		return true;
+
+	const std::vector<std::string> paths = split_comma_paths(ch.pip_tile_test_nv12_paths);
+	if (paths.empty()) {
+		log_msg(LOG_ERROR, "ch=%d pip_tile_test_nv12_paths has no non-empty path segments", ch.channel_id);
+		return false;
+	}
+
+	my_uvc_pip::PipTileLayoutSpec spec{};
+	spec.canvas_w = ch.width;
+	spec.canvas_h = ch.height;
+	spec.n_tiles = tile_n_tiles;
+	spec.gap_px = ch.pip_tile_gap_px;
+	spec.margin_px = ch.pip_tile_margin_px;
+	std::array<my_uvc_pip::PipTileRect, my_uvc_pip::kPipTileLayoutMax> rects{};
+	if (my_uvc_pip::pip_tile_layout_bottom_third(spec, &rects) != tile_n_tiles) {
+		log_msg(LOG_ERROR, "ch=%d pip tile layout failed for NV12 test load", ch.channel_id);
+		return false;
+	}
+
+	if ((ch.pip_tile_test_nv12_src_w > 0) != (ch.pip_tile_test_nv12_src_h > 0)) {
+		log_msg(LOG_ERROR, "ch=%d pip_tile_test_nv12_src_w/h must both be 0 or both >0", ch.channel_id);
+		return false;
+	}
+
+	const int n_use = std::min(tile_n_tiles, static_cast<int>(paths.size()));
+	for (int i = 0; i < n_use; i++) {
+		if (pip_tile_nv12_byte_size(rects[static_cast<size_t>(i)]) == 0) {
+			log_msg(LOG_ERROR, "ch=%d pip tile %d degenerate rect", ch.channel_id, i);
+			return false;
+		}
+		size_t expected = 0;
+		if (ch.pip_tile_test_nv12_src_w > 0 && ch.pip_tile_test_nv12_src_h > 0) {
+			const int sw = (ch.pip_tile_test_nv12_src_w + 1) & ~1;
+			const int sh = (ch.pip_tile_test_nv12_src_h + 1) & ~1;
+			expected = static_cast<size_t>(sw) * static_cast<size_t>(sh) * 3 / 2;
+		} else {
+			expected = pip_tile_nv12_byte_size(rects[static_cast<size_t>(i)]);
+		}
+		std::vector<uint8_t> raw;
+		if (!read_file_all(paths[static_cast<size_t>(i)], &raw)) {
+			log_msg(LOG_ERROR, "ch=%d read NV12 failed tile=%d path=%s", ch.channel_id, i,
+			        paths[static_cast<size_t>(i)].c_str());
+			return false;
+		}
+		if (raw.size() != expected) {
+			log_msg(LOG_ERROR, "ch=%d NV12 size mismatch tile=%d path=%s (got %zu want %zu)", ch.channel_id, i,
+			        paths[static_cast<size_t>(i)].c_str(), raw.size(), expected);
+			return false;
+		}
+		buffers->push_back(std::move(raw));
+	}
+	for (const auto &b : *buffers)
+		row_ptrs->push_back(b.data());
+	*n_active_out = static_cast<int>(buffers->size());
+	return true;
+}
 
 std::vector<NalRange> split_annexb_nals(const std::vector<uint8_t> &buf) {
 	std::vector<NalRange> out;
@@ -419,6 +528,10 @@ void channel_worker(StreamChannelContext ch) {
 		pcfg.pip_h = ch.pip_h;
 		pcfg.pip_jpeg_quality = ch.pip_jpeg_quality;
 		pcfg.pip_overlay_path = ch.pip_overlay_path.c_str();
+		pcfg.pip_overlay_stale_timeout_ms = ch.pip_overlay_stale_timeout_ms;
+		pcfg.pip_tile_n_tiles = ch.pip_tile_n_tiles;
+		pcfg.pip_tile_gap_px = ch.pip_tile_gap_px;
+		pcfg.pip_tile_margin_px = ch.pip_tile_margin_px;
 		pip = pip_helper_create(ch.channel_id, &pcfg);
 		if (!pip) {
 			log_msg(LOG_ERROR, "pip_helper_create failed (ch=%d): %s", ch.channel_id, pip_helper_last_error());
@@ -428,6 +541,21 @@ void channel_worker(StreamChannelContext ch) {
 		}
 		log_msg(LOG_INFO, "pip: ch=%d helper=%s overlay=%s", ch.channel_id, pip_helper_version(),
 		        ch.pip_overlay_path.c_str());
+	}
+
+	std::vector<std::vector<uint8_t>> pip_tile_nv12_store;
+	std::vector<const uint8_t *> pip_tile_nv12_row;
+	int pip_tile_composite_n_active = 0;
+	if (pip && ch.pip_tile_n_tiles > 0 && !ch.pip_tile_test_nv12_paths.empty()) {
+		if (!uvctest_load_pip_tile_nv12_test(ch, ch.pip_tile_n_tiles, &pip_tile_nv12_store, &pip_tile_nv12_row,
+		                                     &pip_tile_composite_n_active)) {
+			pip_helper_destroy(pip);
+			if (ch.stats)
+				ch.stats->stream_on.store(0);
+			return;
+		}
+		if (pip_tile_composite_n_active > 0)
+			log_msg(LOG_INFO, "ch=%d pip grid NV12 test n_active=%d", ch.channel_id, pip_tile_composite_n_active);
 	}
 
 	while (g_run.load()) {
@@ -492,7 +620,26 @@ void channel_worker(StreamChannelContext ch) {
 				}
 				const uint8_t *pip_out = nullptr;
 				size_t pip_out_len = 0;
-				if (pip_helper_composite_mjpeg(pip, bg_ptr, bg_len, &pip_out, &pip_out_len) != 0) {
+				int pc = 0;
+				if (pip_tile_composite_n_active > 0) {
+					pip_helper_composite_opts_t po{};
+					po.n_active = pip_tile_composite_n_active;
+					po.tile_nv12 = pip_tile_nv12_row.data();
+					int tile_sw_arr[my_uvc_pip::kPipTileLayoutMax];
+					int tile_sh_arr[my_uvc_pip::kPipTileLayoutMax];
+					if (ch.pip_tile_test_nv12_src_w > 0 && ch.pip_tile_test_nv12_src_h > 0) {
+						for (int ti = 0; ti < pip_tile_composite_n_active; ti++) {
+							tile_sw_arr[ti] = ch.pip_tile_test_nv12_src_w;
+							tile_sh_arr[ti] = ch.pip_tile_test_nv12_src_h;
+						}
+						po.tile_src_w = tile_sw_arr;
+						po.tile_src_h = tile_sh_arr;
+					}
+					pc = pip_helper_composite_mjpeg_ex(pip, bg_ptr, bg_len, &po, &pip_out, &pip_out_len);
+				} else {
+					pc = pip_helper_composite_mjpeg(pip, bg_ptr, bg_len, &pip_out, &pip_out_len);
+				}
+				if (pc != 0) {
 					if (ch.stats)
 						ch.stats->error_count.fetch_add(1);
 				} else {
@@ -742,6 +889,13 @@ int main(int argc, char **argv) {
 		ch.pip_w = cfg.libmy_uvc_pip.pip_w;
 		ch.pip_h = cfg.libmy_uvc_pip.pip_h;
 		ch.pip_jpeg_quality = cfg.libmy_uvc_pip.pip_jpeg_quality;
+		ch.pip_overlay_stale_timeout_ms = cfg.libmy_uvc_pip.pip_overlay_stale_timeout_ms;
+		ch.pip_tile_n_tiles = cfg.libmy_uvc_pip.pip_tile_n_tiles;
+		ch.pip_tile_gap_px = cfg.libmy_uvc_pip.pip_tile_gap_px;
+		ch.pip_tile_margin_px = cfg.libmy_uvc_pip.pip_tile_margin_px;
+		ch.pip_tile_test_nv12_paths = cfg.uvctest.pip_tile_test_nv12_paths;
+		ch.pip_tile_test_nv12_src_w = cfg.uvctest.pip_tile_test_nv12_src_w;
+		ch.pip_tile_test_nv12_src_h = cfg.uvctest.pip_tile_test_nv12_src_h;
 		ch.h264_path =
 		    cfg.uvctest.channel_h264_path[i].empty() ? cfg.uvctest.h264_path : cfg.uvctest.channel_h264_path[i];
 		auto stats = std::make_shared<ChannelStats>();

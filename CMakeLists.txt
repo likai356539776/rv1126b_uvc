@@ -66,11 +66,17 @@ else()
 	target_link_libraries(my_uvc_lib PRIVATE pthread JPEG::JPEG rockchip_mpp rga)
 endif()
 
+option(MY_UVC_PIP_HELPER_TRANSITIONAL_IO "pip_helper may preload overlay from pip_overlay_path (JPEG on disk)" ON)
 add_library(my_uvc_pip_helper STATIC
 	src/pip_helper/pip_helper_mjpeg.cpp
 	src/pip_mjpeg.cpp
 	src/mpp_jpeg.cpp
 )
+if(MY_UVC_PIP_HELPER_TRANSITIONAL_IO)
+	target_compile_definitions(my_uvc_pip_helper PRIVATE MY_UVC_PIP_HELPER_TRANSITIONAL_IO=1)
+else()
+	target_compile_definitions(my_uvc_pip_helper PRIVATE MY_UVC_PIP_HELPER_TRANSITIONAL_IO=0)
+endif()
 target_include_directories(my_uvc_pip_helper PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_include_directories(my_uvc_pip_helper PRIVATE
 	${CMAKE_SYSROOT}/usr/include/rockchip
@@ -180,6 +186,31 @@ if(MY_UVC_ENABLE_UNIT_TESTS AND NOT CMAKE_CROSSCOMPILING)
 	target_compile_options(test_pip_helper_config_defaults PRIVATE -Wall -Wextra)
 	add_test(NAME test_pip_helper_config_defaults COMMAND test_pip_helper_config_defaults)
 
+	add_executable(test_pip_stale_timeout_policy tests/unit/test_pip_stale_timeout_policy.cpp)
+	target_include_directories(test_pip_stale_timeout_policy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+	target_compile_options(test_pip_stale_timeout_policy PRIVATE -Wall -Wextra)
+	add_test(NAME test_pip_stale_timeout_policy COMMAND test_pip_stale_timeout_policy)
+
+	add_executable(test_pip_ini_stale_timeout_parse
+		tests/unit/test_pip_ini_stale_timeout_parse.cpp
+		src/app_config.cpp
+	)
+	target_include_directories(test_pip_ini_stale_timeout_parse PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+	target_compile_options(test_pip_ini_stale_timeout_parse PRIVATE -Wall -Wextra)
+	add_test(NAME test_pip_ini_stale_timeout_parse COMMAND test_pip_ini_stale_timeout_parse)
+
+	add_executable(test_pip_tile_ini_parse tests/unit/test_pip_tile_ini_parse.cpp src/app_config.cpp)
+	target_include_directories(test_pip_tile_ini_parse PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+	target_compile_options(test_pip_tile_ini_parse PRIVATE -Wall -Wextra)
+	add_test(NAME test_pip_tile_ini_parse COMMAND test_pip_tile_ini_parse)
+
+	add_executable(test_uvctest_pip_tile_nv12_paths_ini tests/unit/test_uvctest_pip_tile_nv12_paths_ini.cpp
+		src/app_config.cpp
+	)
+	target_include_directories(test_uvctest_pip_tile_nv12_paths_ini PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+	target_compile_options(test_uvctest_pip_tile_nv12_paths_ini PRIVATE -Wall -Wextra)
+	add_test(NAME test_uvctest_pip_tile_nv12_paths_ini COMMAND test_uvctest_pip_tile_nv12_paths_ini)
+
 	add_executable(test_my_uvc_ini_section_loader
 		tests/unit/test_my_uvc_ini_section_loader.cpp
 		src/app_config.cpp
@@ -237,11 +268,11 @@ install(FILES
 install(FILES
 	include/my_uvc_pip/pip_helper.h
 	include/my_uvc_pip/pip_tile_layout.hpp
+	include/my_uvc_pip/pip_overlay_stale_policy.hpp
 	DESTINATION include/my_uvc_pip
 )
 install(PROGRAMS scripts/my_uvc_usb_config.sh DESTINATION bin)
 install(FILES
-	config/my_uvc.ini
 	config/libmy_uvc.ini
 	config/libmy_uvc_pip.ini
 	config/uvctest.ini

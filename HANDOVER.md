@@ -36,7 +36,7 @@
 - 新增覆盖参数：`--mjpeg-max-frame-size <bytes>`
 
 ### E. 配置与文档同步
-- `config/my_uvc.ini` 与 `config/profiles/*.ini` 新参数同步：
+- `config/libmy_uvc*.ini` / `uvctest.ini` 与 `config/profiles/*.ini` 新参数同步：
   - `prefer_host_fps`
   - `pip_*` 参数组（默认 profile 中 `pip_enable=0`）
 - `config/` 下全部 `fps` / `channelN_fps` 已统一为 `30`
@@ -52,7 +52,7 @@
 - 脚本：
   - `scripts/my_uvc_usb_config.sh`
 - 配置：
-  - `config/my_uvc.ini`
+  - `config/libmy_uvc.ini`, `config/libmy_uvc_pip.ini`, `config/uvctest.ini`
   - `config/profiles/my_uvc_*ch_independent.ini`
 - 文档：
   - `docs/README.md`
@@ -80,7 +80,7 @@
 my_uvc_usb_config.sh -f MJPEG -w 1920 -h 1080 -p 25 -n 1 --stop-system-usb
 
 # 2) 启动应用
-uvctest -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir \
+uvctest -c /userdata --codec mjpeg --file /userdata/mjpeg_frames_dir \
   --pip-enable 1 --pip-overlay /userdata/mjpeg_overlay \
   --pip-x 20 --pip-y 20 --pip-w 640 --pip-h 480 --pip-jpeg-quality 85
 
@@ -99,7 +99,7 @@ export MY_UVC_NEGO=1
 
 ## 7) 下次会话建议起步
 
-1. 先读：`HANDOVER.md`、`docs/README.md`、`config/my_uvc.ini`
+1. 先读：`HANDOVER.md`、`docs/README.md`、`config/README_CONFIG.md`
 2. 优先复核板端实际生效内容：
    - `/sys/kernel/config/usb_gadget/.../dwFrameInterval`
    - `/sys/kernel/config/usb_gadget/.../dwMaxVideoFrameBufferSize`

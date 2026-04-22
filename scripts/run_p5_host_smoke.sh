@@ -9,16 +9,18 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 "${ROOT}/scripts/run_unit_tests_host.sh" "$@"
+"${ROOT}/tests/integration/check_pip_helper_no_product_fopen.sh" --strict
 
 "${ROOT}/tests/integration/doc_deploy_walkthrough_smoke.sh" check
 "${ROOT}/tests/integration/board_select_profile_uvc_binary_smoke.sh" check
 
 echo ""
-echo "P5-T2: 分文件目录 vs 单文件 my_uvc.ini — 已由 CTest **test_app_config_path_directory_vs_file** 覆盖（含于上方）。"
+echo "P5-T2: 分文件目录 vs 单文件合并 ini — 已由 CTest **test_app_config_path_directory_vs_file** 覆盖（含于上方）。"
 echo "      单独复跑: tests/integration/board_config_split_vs_monolith_parity.sh"
 echo "P5-T3: 交叉编译产物目录下执行: tests/integration/check_uvctest_and_lib_deps.sh <build-dir>"
 echo "      （另: tests/integration/check_libmy_uvc_soname_exports.sh <build-dir>）"
 echo "P5-T1: 人工执行 docs/TEST_CHECKLIST_CN.md，结果记入 tests/integration/record_release_regression.md"
 echo "板端集成（P1/P2 §闸口）脚本示例: tests/integration/board_libmy_uvc_submit_smoke.sh check, board_uvctest_parity_regression.sh check"
+echo "阶段 3 宿主机子集（§5.0）: ./scripts/run_p3_host_smoke.sh"
 echo ""
 echo "run_p5_host_smoke: ok"

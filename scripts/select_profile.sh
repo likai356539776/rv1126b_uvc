@@ -22,7 +22,7 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 INSTALL_SCRIPT="${PROJECT_DIR}/my_uvc_install_to_device.sh"
-REMOTE_CONFIG_PATH="/userdata/my_uvc.ini"
+REMOTE_CONFIG_PATH="/userdata/profile.ini"
 PROFILE=""
 DO_INSTALL=0
 DO_RUN=0
@@ -47,7 +47,7 @@ print_usage() {
 	echo "  --codec             h264 (default) or mjpeg — passed to usb script -f and uvctest --codec"
 	echo "  --stop-system-usb   Add --stop-system-usb when running my_uvc_usb_config.sh"
 	echo "  --adb-serial        Optional adb serial passed to install script"
-	echo "  --remote-config     Target path on board (default: /userdata/my_uvc.ini)"
+	echo "  --remote-config     Target path on board (default: /userdata/profile.ini)"
 }
 
 adb_exec() {

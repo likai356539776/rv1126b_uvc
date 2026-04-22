@@ -44,9 +44,9 @@
 ## 4) Stream Check (Board + Host)
 
 - Board:
-  - H.264: `uvctest -c /userdata/my_uvc.ini --codec h264`
-  - MJPEG: `uvctest -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir`
-  - MJPEG + PiP: `uvctest -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir --pip-enable 1 --pip-overlay /userdata/mjpeg_overlay --pip-x 20 --pip-y 20 --pip-w 640 --pip-h 480 --pip-jpeg-quality 85`
+  - H.264: `uvctest -c /userdata --codec h264`
+  - MJPEG: `uvctest -c /userdata --codec mjpeg --file /userdata/mjpeg_frames_dir`
+  - MJPEG + PiP: `uvctest -c /userdata --codec mjpeg --file /userdata/mjpeg_frames_dir --pip-enable 1 --pip-overlay /userdata/mjpeg_overlay --pip-x 20 --pip-y 20 --pip-w 640 --pip-h 480 --pip-jpeg-quality 85`
 - Host:
   - `v4l2-ctl -d /dev/videoX --list-formats-ext`
   - H.264: `ffplay -f v4l2 -input_format h264 -video_size 1920x1080 -framerate 25 /dev/videoX`
@@ -67,13 +67,13 @@
 
 - 2-channel example:
   - Board: `my_uvc_usb_config.sh -w 1920 -h 1080 -p 25 -n 2 --verbose`
-  - Board: `uvctest --channels 2 -c /userdata/my_uvc.ini`
+  - Board: `uvctest --channels 2 -c /userdata`
   - Host: `v4l2-ctl --list-devices`, open both video nodes.
 
 ## 4.2.1) 4-Channel Independent Quick Check
 
 - Board USB: `my_uvc_usb_config.sh -w 1920 -h 1080 -p 25 -n 4 --verbose`
-- Board app: `uvctest -c /userdata/my_uvc.ini`
+- Board app: `uvctest -c /userdata`
 - Host: open 4 `/dev/videoX` nodes separately.
 - Recommended profile: `config/profiles/my_uvc_4ch_independent.ini`
 
@@ -131,9 +131,9 @@
 
 | Preset | Scenario | Key settings | Command |
 |---|---|---|---|
-| Stable-first | Long-run test | `log_level=1`, `stats_enable=1`, `startup_prime_frames=8` | `uvctest -c /userdata/my_uvc.ini` |
-| Low-latency | Debugging | `log_level=0`, `stats_enable=0`, `startup_prime_frames=2` | `uvctest -c /userdata/my_uvc.ini --log-level 0 --stats-enable 0` |
-| Reopen-robust | Frequent open/close | `log_level=2`, `startup_prime_frames=16` | `uvctest -c /userdata/my_uvc.ini --log-level 2 --startup-prime-frames 16` |
+| Stable-first | Long-run test | `log_level=1`, `stats_enable=1`, `startup_prime_frames=8` | `uvctest -c /userdata` |
+| Low-latency | Debugging | `log_level=0`, `stats_enable=0`, `startup_prime_frames=2` | `uvctest -c /userdata --log-level 0 --stats-enable 0` |
+| Reopen-robust | Frequent open/close | `log_level=2`, `startup_prime_frames=16` | `uvctest -c /userdata --log-level 2 --startup-prime-frames 16` |
 
 Notes:
 - If host shows `non-existing PPS`, increase `startup_prime_frames` by +2.

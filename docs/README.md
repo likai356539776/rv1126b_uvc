@@ -160,7 +160,7 @@ USB 热拔插恢复是内置能力，无需额外操作：
 
 ## 7) Notes
 
-- 板端配置：默认 `-c /userdata`（目录），依次合并 `libmy_uvc.ini`、`libmy_uvc_pip.ini`、`uvctest.ini`；仍可使用单文件 `-c /userdata/my_uvc.ini`。说明见 `config/README_CONFIG.md`
+- 板端配置：默认 `-c /userdata`（目录），依次合并 `libmy_uvc.ini`、`libmy_uvc_pip.ini`、`uvctest.ini`；`select_profile --install` 下发的多路模板为单文件 **`/userdata/profile.ini`**。说明见 `config/README_CONFIG.md`
 - 应用侧最大路数：16
 - USB 脚本侧最大路数：16
 - Buildroot 注意：若板端同时存在 `libjpeg.so.62` 与 `libjpeg.so.8`，`uvctest` / `libmy_uvc.so` 必须链接 `libjpeg.so.8`

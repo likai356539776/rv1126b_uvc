@@ -41,9 +41,9 @@
 ## 4) 推流检查（板端 + 主机）
 
 - 板端：
-  - H.264：`uvctest -c /userdata/my_uvc.ini --codec h264`
-  - MJPEG：`uvctest -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir`
-  - MJPEG + PiP：`uvctest -c /userdata/my_uvc.ini --codec mjpeg --file /userdata/mjpeg_frames_dir --pip-enable 1 --pip-overlay /userdata/mjpeg_overlay --pip-x 20 --pip-y 20 --pip-w 640 --pip-h 480 --pip-jpeg-quality 85`
+  - H.264：`uvctest -c /userdata --codec h264`
+  - MJPEG：`uvctest -c /userdata --codec mjpeg --file /userdata/mjpeg_frames_dir`
+  - MJPEG + PiP：`uvctest -c /userdata --codec mjpeg --file /userdata/mjpeg_frames_dir --pip-enable 1 --pip-overlay /userdata/mjpeg_overlay --pip-x 20 --pip-y 20 --pip-w 640 --pip-h 480 --pip-jpeg-quality 85`
 - 主机：
   - `v4l2-ctl -d /dev/videoX --list-formats-ext`
   - H.264：`ffplay -f v4l2 -input_format h264 -video_size 1920x1080 -framerate 25 /dev/videoX`
@@ -53,6 +53,13 @@
 
 - 若 PiP 报 `Wrong JPEG library version`，检查板端 `libjpeg.so.62` 与 `libjpeg.so.8` 的链接情况。
 - `uvctest` 需链接 `libjpeg.so.8`。
+
+## 4.0.2) PiP 断流与网格 n_active（板端 / 宿主机闸口）
+
+- **宿主机 P3-I4**：`tests/integration/check_pip_helper_no_product_fopen.sh --strict`（**`scripts/run_p3_host_smoke.sh`** 与 **`scripts/run_p5_host_smoke.sh`** 均会调用）；目标为 `src/pip_helper` 与 `src/pip_mjpeg.cpp` 不出现 `fopen`。
+- **板端 P3-I5**：`tests/integration/board_pip_stale_and_n_active_smoke.sh check` 查看步骤摘要；需要短时跑进程时用 `smoke`。**`smoke` 默认 `CONFIG=/userdata`（目录）**，`uvctest` 合并 **`libmy_uvc.ini` → `libmy_uvc_pip.ini` → `uvctest.ini`**。单文件 profile（如 **`select_profile --install`**）在板上多为 **`/userdata/profile.ini`**，可 `export CONFIG=/userdata/profile.ini`。若 ini 已配置 `[uvctest] pip_tile_test_nv12_paths` 与 `[libmy_uvc_pip] pip_tile_n_tiles`，可设 `EXPECT_N_ACTIVE` 要求日志含 `pip grid NV12 test n_active=<n>`（示例：`EXPECT_N_ACTIVE=2 board_pip_stale_and_n_active_smoke.sh smoke`，期望出现 **`ch=0 pip grid NV12 test n_active=2`** 且末行 **`board_pip_stale_and_n_active_smoke: ok`**；**2026-04-21** rv1126b-buildroot 已按此通过，见 **`tests/integration/record_release_regression.md`**）。**`my_uvc_install_to_device.sh` 不推送该脚本**，板端须手动同步仓库 `tests/integration` 内同名文件至 `/usr/bin`（或指定路径）并 `chmod +x`；成功时末行 `board_pip_stale_and_n_active_smoke: ok`，且不应再出现 `log: unbound variable`（旧版 `local log` + `EXIT trap` 已修复）。`my_uvc_usb_config.sh … --stop-system-usb` 后内核偶现 `dwc3 … was not queued to ep0out`，与 gadget 断开相关，一般可忽略。串口日志中 `width=19205` / `quality=5` 多为窄终端折行，以 `pip_hw` / UVC 行 `1920x1080` 为准；短时 `timeout` 内主机未开流时 `stats … on=0` 可接受。结果记入 **`tests/integration/record_release_regression.md`**（P3-I5 行）。
+- **断流超时**：`[libmy_uvc_pip] pip_overlay_stale_timeout_ms` 与 `pip_helper_create` 字段一致（`-1` 缺省 5000 ms，`0` 仅冻结不上屏背图，`>0` 自定义）。`uvctest` 单文件主讲人 overlay 路径默认每帧刷新时间戳；要在板上观察「无新帧 → 冻结/超时」需集成方使用 `pip_helper_composite_mjpeg_ex` 的 `presenter_nv12_updated` / `tile_nv12_updated`。**网格 per-slot 断流**：`tile_nv12_updated` 非 NULL 时，`tile_nv12_updated[i]==0` 可省略 `tile_nv12[i]`，库内按槽位缓存与超时策略处理。
+- **n_active**：`n_active = min(非空 NV12 路径段数, pip_tile_n_tiles)`；路径数小于槽位数时余格为背图（人工预览确认）。
 
 ## 4.1) FPS 协商排障
 
@@ -64,13 +71,13 @@
 
 - 2 路示例：
   - 板端：`my_uvc_usb_config.sh -w 1920 -h 1080 -p 25 -n 2 --verbose`
-  - 板端：`uvctest --channels 2 -c /userdata/my_uvc.ini`
+  - 板端：`uvctest --channels 2 -c /userdata`
   - 主机：`v4l2-ctl --list-devices`，分别打开两个视频节点。
 
 ## 4.2.1) 4 路独立快速检查
 
 - 板端 USB：`my_uvc_usb_config.sh -w 1920 -h 1080 -p 25 -n 4 --verbose`
-- 板端应用：`uvctest -c /userdata/my_uvc.ini`
+- 板端应用：`uvctest -c /userdata`
 - 主机：分别打开 4 个 `/dev/videoX` 节点。
 - 推荐 profile：`config/profiles/my_uvc_4ch_independent.ini`
 
@@ -126,9 +133,9 @@
 
 | 预设    | 场景    | 关键参数                                                      | 命令示例                                                                      |
 | ----- | ----- | --------------------------------------------------------- | ------------------------------------------------------------------------- |
-| 稳定优先  | 长时压测  | `log_level=1`, `stats_enable=1`, `startup_prime_frames=8` | `uvctest -c /userdata/my_uvc.ini`                                         |
-| 低时延优先 | 调试    | `log_level=0`, `stats_enable=0`, `startup_prime_frames=2` | `uvctest -c /userdata/my_uvc.ini --log-level 0 --stats-enable 0`          |
-| 复开流鲁棒 | 高频开关流 | `log_level=2`, `startup_prime_frames=16`                  | `uvctest -c /userdata/my_uvc.ini --log-level 2 --startup-prime-frames 16` |
+| 稳定优先  | 长时压测  | `log_level=1`, `stats_enable=1`, `startup_prime_frames=8` | `uvctest -c /userdata`                                         |
+| 低时延优先 | 调试    | `log_level=0`, `stats_enable=0`, `startup_prime_frames=2` | `uvctest -c /userdata --log-level 0 --stats-enable 0`          |
+| 复开流鲁棒 | 高频开关流 | `log_level=2`, `startup_prime_frames=16`                  | `uvctest -c /userdata --log-level 2 --startup-prime-frames 16` |
 
 
 说明：

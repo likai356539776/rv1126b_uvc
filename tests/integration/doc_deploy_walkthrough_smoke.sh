@@ -33,7 +33,7 @@ run_check()
 	need_x "${ROOT}/my_uvc_install_to_device.sh"
 	need_x "${ROOT}/scripts/my_uvc_usb_config.sh"
 	need_x "${ROOT}/scripts/select_profile.sh"
-	for f in libmy_uvc.ini libmy_uvc_pip.ini uvctest.ini my_uvc.ini README_CONFIG.md; do
+	for f in libmy_uvc.ini libmy_uvc_pip.ini uvctest.ini README_CONFIG.md; do
 		need_f "${ROOT}/config/${f}"
 	done
 	need_f "${ROOT}/docs/README.md"
@@ -74,7 +74,7 @@ run_board()
 	"${adb_cmd[@]}" shell "test -f /usr/lib/libmy_uvc.so.1.0.0 || test -f /usr/lib/libmy_uvc.so.1" 2>/dev/null || {
 		echo "WARN: libmy_uvc.so not under /usr/lib (install may be incomplete)"
 	}
-	for f in libmy_uvc.ini libmy_uvc_pip.ini; do
+	for f in libmy_uvc.ini libmy_uvc_pip.ini uvctest.ini; do
 		if ! "${adb_cmd[@]}" shell "test -f /userdata/${f}" 2>/dev/null; then
 			echo "WARN: /userdata/${f} missing — run my_uvc_install_to_device.sh to push split configs"
 		fi

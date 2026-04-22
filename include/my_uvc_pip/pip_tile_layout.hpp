@@ -30,6 +30,25 @@ struct PipTileLayoutSpec {
 inline constexpr int kPipTileLayoutMax = 16;
 
 /**
+ * 由布局矩形得到 NV12/RGA 缩放与裸缓冲所用宽高：先偶对齐再宽 4 对齐（RK RGA 要求 stride 4 对齐）。
+ * 与 pip_tile_layout_bottom_third 算出的 w/h 可能差 0~3 像素；叠画仍用 tox/toy 定位。
+ */
+inline bool pip_tile_rect_nv12_plane_wh(const PipTileRect &r, int *out_w, int *out_h)
+{
+	if (!out_w || !out_h)
+		return false;
+	int w = (r.w + 1) & ~1;
+	int h = (r.h + 1) & ~1;
+	w = (w / 4) * 4;
+	h = (h / 4) * 4;
+	if (w <= 0 || h <= 0)
+		return false;
+	*out_w = w;
+	*out_h = h;
+	return true;
+}
+
+/**
  * 计算各 tile 在画布上的像素矩形（左上角坐标 + 宽高）。
  * @return 写入的 tile 个数（等于 spec.n_tiles），参数非法时返回 -1。
  */

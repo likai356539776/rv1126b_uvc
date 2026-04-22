@@ -36,6 +36,12 @@ static int cmp_key_fields(const AppConfig &a, const AppConfig &b)
 	    a.libmy_uvc_pip.pip_y != b.libmy_uvc_pip.pip_y || a.libmy_uvc_pip.pip_w != b.libmy_uvc_pip.pip_w ||
 	    a.libmy_uvc_pip.pip_h != b.libmy_uvc_pip.pip_h || a.libmy_uvc_pip.pip_jpeg_quality != b.libmy_uvc_pip.pip_jpeg_quality)
 		return 1;
+	if (a.libmy_uvc_pip.pip_overlay_stale_timeout_ms != b.libmy_uvc_pip.pip_overlay_stale_timeout_ms)
+		return 1;
+	if (a.libmy_uvc_pip.pip_tile_n_tiles != b.libmy_uvc_pip.pip_tile_n_tiles ||
+	    a.libmy_uvc_pip.pip_tile_gap_px != b.libmy_uvc_pip.pip_tile_gap_px ||
+	    a.libmy_uvc_pip.pip_tile_margin_px != b.libmy_uvc_pip.pip_tile_margin_px)
+		return 1;
 	if (a.libmy_uvc_pip.pip_overlay_path != b.libmy_uvc_pip.pip_overlay_path)
 		return 1;
 	return 0;

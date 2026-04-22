@@ -1,6 +1,8 @@
 # Build directories
 build-rv1126b/
 build*/
+Testing/
+my_uvc_pip.log
 
 # CMake generated files
 CMakeCache.txt

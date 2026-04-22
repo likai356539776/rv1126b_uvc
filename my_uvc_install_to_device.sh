@@ -13,7 +13,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 #   - 可执行程序部署到: /usr/bin
 #   - 配置文件部署到:   /userdata
 #
-# 默认推送拆分配置: libmy_uvc.ini, libmy_uvc_pip.ini, uvctest.ini, my_uvc.ini（见 config/README_CONFIG.md）
+# 默认推送拆分配置: libmy_uvc.ini, libmy_uvc_pip.ini, uvctest.ini（见 config/README_CONFIG.md）
 # 后续如新增产物，请在 "Deploy artifacts" 区域追加 adb push。
 # -----------------------------------------------------------------------------
 
@@ -26,8 +26,8 @@ ADB_SERIAL_ENV="${ADB_SERIAL:-}"
 ADB_SERIAL_ARG=""
 LOCAL_CONFIG_DIR="${PROJECT_DIR}/config"
 DEPLOY_SINGLE_INI=0
-LOCAL_CONFIG_PATH="${LOCAL_CONFIG_DIR}/my_uvc.ini"
-REMOTE_CONFIG_PATH="/userdata/my_uvc.ini"
+LOCAL_CONFIG_PATH="${LOCAL_CONFIG_DIR}/libmy_uvc.ini"
+REMOTE_CONFIG_PATH="/userdata/profile.ini"
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 	--adb-serial)
@@ -53,10 +53,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	-h|--help)
 		echo "Usage: $0 [--adb-serial <serial>] [--config-dir <dir>] [--config <local_ini> --remote-config <remote>]"
-		echo "  Default: push split configs from config/: libmy_uvc.ini, libmy_uvc_pip.ini, uvctest.ini, my_uvc.ini -> /userdata/"
+		echo "  Default: push split configs from config/: libmy_uvc.ini, libmy_uvc_pip.ini, uvctest.ini -> /userdata/"
 		echo "  --config-dir     Local directory containing ini files (default: <project>/config)"
 		echo "  --config         Deploy a single local ini file (use with --remote-config)"
-		echo "  --remote-config  Remote path when using --config (default: /userdata/my_uvc.ini)"
+		echo "  --remote-config  Remote path when using --config (default: /userdata/profile.ini)"
 		exit 0
 		;;
 	*)
@@ -111,7 +111,7 @@ if [[ "${DEPLOY_SINGLE_INI}" -eq 1 ]]; then
 	adb_exec push "${LOCAL_CONFIG_PATH}" "${REMOTE_CONFIG_PATH}"
 	adb_exec shell chmod 666 "${REMOTE_CONFIG_PATH}"
 else
-	for f in libmy_uvc.ini libmy_uvc_pip.ini uvctest.ini my_uvc.ini; do
+	for f in libmy_uvc.ini libmy_uvc_pip.ini uvctest.ini; do
 		if [[ -f "${LOCAL_CONFIG_DIR}/${f}" ]]; then
 			echo "[my_uvc_install] push ${f} -> /userdata/${f}"
 			adb_exec push "${LOCAL_CONFIG_DIR}/${f}" "/userdata/${f}"

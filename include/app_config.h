@@ -38,6 +38,12 @@ struct LibmyUvcPipIniFields {
 	int pip_w;
 	int pip_h;
 	int pip_jpeg_quality;
+	/** [libmy_uvc_pip] 非负：0=禁用超时（仅冻结上一帧）；缺省见 default_app_config()（5000）。 */
+	int pip_overlay_stale_timeout_ms;
+	/** 下三分之一网格槽位上限 0~16；0=无网格（仅主讲人）。 */
+	int pip_tile_n_tiles;
+	int pip_tile_gap_px;
+	int pip_tile_margin_px;
 };
 
 /**
@@ -49,6 +55,11 @@ struct UvctestIniFields {
 	bool stats_enable;
 	int stats_interval_sec;
 	std::string h264_path;
+	/** 逗号分隔的 NV12 裸文件路径（`;` 为 ini 注释不可用），与 PiP 槽 0.. 对齐；仅 uvctest。 */
+	std::string pip_tile_test_nv12_paths;
+	/** 测试 NV12 文件的源分辨率（如 640×480）；0,0 表示与槽位显示尺寸一致。 */
+	int pip_tile_test_nv12_src_w;
+	int pip_tile_test_nv12_src_h;
 	std::array<int, kMaxUvcChannels> channel_fps;
 	std::array<std::string, kMaxUvcChannels> channel_h264_path;
 };
@@ -70,7 +81,8 @@ AppConfig default_app_config();
  *
  * - If `path` is a **directory**, merges in order (later files override earlier keys):
  *     libmy_uvc.ini, libmy_uvc_pip.ini, uvctest.ini
- *   If none of those exist, falls back to a single file `my_uvc.ini` in that directory
+ *   If none of those exist, loading fails (at least one split file must be present).
+ *   Single-file configs (e.g. legacy `[my_uvc]` in one file) still work when `-c` points to a file path.
  *   (legacy monolithic [my_uvc]).
  * - If `path` is a **file**, parses that file (supports [my_uvc]/[uvc] legacy all-in-one,
  *   or split sections [libmy_uvc], [libmy_uvc_pip], [uvctest] in one file).

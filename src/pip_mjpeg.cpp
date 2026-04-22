@@ -7,6 +7,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -49,67 +50,24 @@ const char *pip_mjpeg_last_error() {
 bool pip_mjpeg_decode_jpeg_file_rgb(const char *path, std::vector<uint8_t> *rgb, int *out_w, int *out_h) {
 	if (!path || !path[0] || !rgb || !out_w || !out_h)
 		return false;
-	FILE *fp = std::fopen(path, "rb");
-	if (!fp) {
-		std::snprintf(g_last_msg, sizeof(g_last_msg), "fopen failed: %s", std::strerror(errno));
+	std::vector<uint8_t> jpeg_data;
+	std::ifstream in(path, std::ios::binary | std::ios::ate);
+	if (!in.is_open()) {
+		std::snprintf(g_last_msg, sizeof(g_last_msg), "open failed: %s", std::strerror(errno));
 		return false;
 	}
-
-	jpeg_decompress_struct cinfo{};
-	PipJpegErrorMgr jerr{};
-	cinfo.err = jpeg_std_error(&jerr.pub);
-	jerr.pub.error_exit = pip_jpeg_error_exit;
-	jerr.msg[0] = '\0';
-	g_last_err = &jerr;
-	g_last_msg[0] = '\0';
-
-	if (setjmp(jerr.jb)) {
-		// error_exit already formatted message into jerr.msg
-		if (jerr.msg[0])
-			std::snprintf(g_last_msg, sizeof(g_last_msg), "%s", jerr.msg);
-		jpeg_destroy_decompress(&cinfo);
-		std::fclose(fp);
-		g_last_err = nullptr;
+	const std::streamsize sz = in.tellg();
+	if (sz <= 0) {
+		std::snprintf(g_last_msg, sizeof(g_last_msg), "empty or invalid jpeg file");
 		return false;
 	}
-
-	jpeg_create_decompress(&cinfo);
-	jpeg_stdio_src(&cinfo, fp);
-	const int hdr = jpeg_read_header(&cinfo, TRUE);
-	if (hdr != JPEG_HEADER_OK) {
-		std::snprintf(jerr.msg, sizeof(jerr.msg), "jpeg_read_header=%d", hdr);
-		std::snprintf(g_last_msg, sizeof(g_last_msg), "%s", jerr.msg);
-		jpeg_destroy_decompress(&cinfo);
-		std::fclose(fp);
-		g_last_err = nullptr;
+	in.seekg(0, std::ios::beg);
+	jpeg_data.resize(static_cast<size_t>(sz));
+	if (!in.read(reinterpret_cast<char *>(jpeg_data.data()), sz)) {
+		std::snprintf(g_last_msg, sizeof(g_last_msg), "read failed");
 		return false;
 	}
-
-	cinfo.out_color_space = JCS_RGB;
-	jpeg_start_decompress(&cinfo);
-
-	const int w = static_cast<int>(cinfo.output_width);
-	const int h = static_cast<int>(cinfo.output_height);
-	const int row_stride = w * 3;
-	rgb->resize(static_cast<size_t>(row_stride * h));
-
-	JSAMPARRAY buffer = (*cinfo.mem->alloc_sarray)((j_common_ptr)&cinfo, JPOOL_IMAGE,
-	                                                 static_cast<unsigned int>(row_stride), 1);
-
-	for (int y = 0; cinfo.output_scanline < cinfo.output_height; y++) {
-		jpeg_read_scanlines(&cinfo, buffer, 1);
-		std::memcpy(rgb->data() + static_cast<size_t>(y) * static_cast<size_t>(row_stride), buffer[0],
-		            static_cast<size_t>(row_stride));
-	}
-
-	jpeg_finish_decompress(&cinfo);
-	jpeg_destroy_decompress(&cinfo);
-	std::fclose(fp);
-	*out_w = w;
-	*out_h = h;
-	g_last_err = nullptr;
-	g_last_msg[0] = '\0';
-	return true;
+	return pip_mjpeg_decode_jpeg_rgb(jpeg_data.data(), jpeg_data.size(), rgb, out_w, out_h);
 }
 
 bool pip_mjpeg_decode_jpeg_rgb(const uint8_t *jpeg_data, size_t jpeg_len, std::vector<uint8_t> *rgb, int *out_w,

@@ -7,6 +7,7 @@
 #   ./board_usb_replug_channel_submit.sh steps  # 仅输出 §4.4.1 步骤（无命令检查）
 #
 # 环境: UVCTEST, CONFIG（同其他 board 脚本）
+#   TEST_CHECKLIST_MD  可选，指向 TEST_CHECKLIST_CN.md（拷到板上后 export 即可用 steps 原文 sed）
 set -euo pipefail
 
 UVCTEST="${UVCTEST:-uvctest}"
@@ -38,10 +39,47 @@ board_usb_replug_channel_submit check: ok (manual replug required for full P1-I2
 EOF
 }
 
+run_steps_embedded()
+{
+	cat <<'EOF'
+### 4.4.1) 推流中拔插
+
+- 前提：
+  - 板端 `uvctest` 运行中，主机端正在预览画面
+  - USB 配置脚本使用了 `--stop-system-usb`
+- 步骤：
+  1. 确认主机端画面正常。
+  2. 从板端拔掉 USB 线。
+  3. 等待 2~3 秒。
+  4. 重新插入 USB 线。
+  5. 主机端关闭并重新打开摄像头应用。
+- 板端日志期望：
+  - 拔线后出现：`UVC: device disconnected (ENODEV), releasing buffers`（每个 video_id 一次）
+  - 插入后出现：`UVC_EVENT_STREAMON` → `Buffer mapped` → `Starting video stream`
+- 板端日志不应出现：
+  - `Unable to allocate buffers: Device or resource busy`
+  - 持续刷屏的 `VIDIOC_DQEVENT failed: No such device`
+- 主机期望：重新打开摄像头后画面恢复。
+
+EOF
+}
+
 run_steps()
 {
-	sed -n '/### 4.4.1/,/### 4.4.2/p' "$(cd "$(dirname "$0")/../.." && pwd)/docs/TEST_CHECKLIST_CN.md" 2>/dev/null ||
-		echo "See docs/TEST_CHECKLIST_CN.md §4.4"
+	local here doc
+	here="$(cd "$(dirname "$0")" && pwd)"
+	if [[ -n "${TEST_CHECKLIST_MD:-}" && -f "${TEST_CHECKLIST_MD}" ]]; then
+		sed -n '/### 4.4.1/,/### 4.4.2/p' "${TEST_CHECKLIST_MD}"
+		return 0
+	fi
+	for doc in "${here}/../../docs/TEST_CHECKLIST_CN.md" "${here}/../../../my_uvc/docs/TEST_CHECKLIST_CN.md"; do
+		if [[ -f "${doc}" ]]; then
+			sed -n '/### 4.4.1/,/### 4.4.2/p' "${doc}"
+			return 0
+		fi
+	done
+	run_steps_embedded
+	echo "(内嵌摘录；仓库内完整文档见 docs/TEST_CHECKLIST_CN.md，板上可 export TEST_CHECKLIST_MD=/path/to/TEST_CHECKLIST_CN.md)"
 }
 
 case "${1:-check}" in

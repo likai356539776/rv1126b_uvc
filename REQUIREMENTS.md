@@ -92,7 +92,7 @@ my_uvc/
 
 - 可执行程序：`uvctest`
 - 启动脚本：`my_uvc_usb_config.sh`
-- 配置文件：`my_uvc.ini`
+- 配置文件：`libmy_uvc.ini`、`libmy_uvc_pip.ini`、`uvctest.ini`（目录合并）；多路 profile 单文件见 `config/profiles/`
 - 构建脚本：`autobuild.sh`
 - 部署脚本：`my_uvc_install_to_device.sh`
 - Profile 选择脚本：`scripts/select_profile.sh`
@@ -110,7 +110,7 @@ my_uvc/
 
 ## 8. 运行参数
 
-### A) 应用配置 `my_uvc.ini`
+### A) 应用配置（`[libmy_uvc]` / 分文件或 `[my_uvc]` profile 单文件）
 
 | 参数名 | 默认值 | 有效范围 | CLI 覆盖 | 说明 |
 |---|---:|---|---|---|

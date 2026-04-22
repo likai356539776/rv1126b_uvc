@@ -43,6 +43,12 @@ static int cmp_merge_vs_full(const AppConfig &a, const AppConfig &b)
 	    a.libmy_uvc_pip.pip_y != b.libmy_uvc_pip.pip_y || a.libmy_uvc_pip.pip_w != b.libmy_uvc_pip.pip_w ||
 	    a.libmy_uvc_pip.pip_h != b.libmy_uvc_pip.pip_h || a.libmy_uvc_pip.pip_jpeg_quality != b.libmy_uvc_pip.pip_jpeg_quality)
 		return 1;
+	if (a.libmy_uvc_pip.pip_overlay_stale_timeout_ms != b.libmy_uvc_pip.pip_overlay_stale_timeout_ms)
+		return 1;
+	if (a.libmy_uvc_pip.pip_tile_n_tiles != b.libmy_uvc_pip.pip_tile_n_tiles ||
+	    a.libmy_uvc_pip.pip_tile_gap_px != b.libmy_uvc_pip.pip_tile_gap_px ||
+	    a.libmy_uvc_pip.pip_tile_margin_px != b.libmy_uvc_pip.pip_tile_margin_px)
+		return 1;
 	if (a.libmy_uvc_pip.pip_overlay_path != b.libmy_uvc_pip.pip_overlay_path)
 		return 1;
 	for (int i = 0; i < kMaxUvcChannels; i++) {
@@ -75,6 +81,7 @@ pip_w = 320
 pip_h = 240
 pip_jpeg_quality = 90
 pip_overlay_path = /tmp/o.jpg
+pip_overlay_stale_timeout_ms = 2000
 [uvctest]
 h264_path = /media/x.h264
 log_every_frames = 99

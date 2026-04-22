@@ -1,10 +1,15 @@
 #include "my_uvc_pip/pip_helper.h"
+#include "my_uvc_pip/pip_overlay_stale_policy.hpp"
+#include "my_uvc_pip/pip_tile_layout.hpp"
 
 #include "mpp_jpeg.h"
 #include "pip_mjpeg.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -16,9 +21,19 @@
 #include <thread>
 #include <vector>
 
+#ifndef MY_UVC_PIP_HELPER_TRANSITIONAL_IO
+#define MY_UVC_PIP_HELPER_TRANSITIONAL_IO 1
+#endif
+
 namespace fs = std::filesystem;
 
 thread_local char g_err[512];
+
+static int64_t mono_ms_now()
+{
+	using namespace std::chrono;
+	return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
 
 static void set_err(const char *fmt, ...)
 {
@@ -95,6 +110,19 @@ struct PipHelperImpl {
 	size_t overlay_idx = 0;
 	std::vector<uint8_t> jpeg_out;
 	bool ready = false;
+	/** 与 pip_helper_config_t.pip_overlay_stale_timeout_ms 一致（含 -1），供 §2.4 策略纯函数。 */
+	int32_t stale_timeout_cfg_ms = -1;
+	/** 单文件主讲人 NV12：最后有效帧的单调时间（毫秒）。 */
+	int64_t presenter_last_update_ms = 0;
+	bool presenter_has_valid = false;
+	/** create 时自 pip_overlay_path 单文件解码预载成功（非 NV12 API 流）。 */
+	bool presenter_preloaded_jpeg = false;
+	/** 下三分之一网格（0 = 未启用）。 */
+	int tile_n_tiles = 0;
+	std::array<my_uvc_pip::PipTileRect, my_uvc_pip::kPipTileLayoutMax> tile_rects{};
+	std::vector<std::vector<uint8_t>> tile_nv12_cache;
+	std::vector<int64_t> tile_last_update_ms;
+	std::vector<uint8_t> tile_has_valid;
 };
 
 static bool decode_jpeg_file_to_pip_nv12(PipHelperImpl *p, const char *jpeg_path,
@@ -154,10 +182,12 @@ extern "C" pip_helper_t *pip_helper_create(int channel_id, const pip_helper_conf
 		set_err("invalid canvas size");
 		return nullptr;
 	}
+#if MY_UVC_PIP_HELPER_TRANSITIONAL_IO
 	if (!cfg->pip_overlay_path || !cfg->pip_overlay_path[0]) {
 		set_err("pip_overlay_path empty");
 		return nullptr;
 	}
+#endif
 	if (cfg->pip_w <= 0 || cfg->pip_h <= 0) {
 		set_err("pip_w/pip_h invalid");
 		return nullptr;
@@ -169,10 +199,47 @@ extern "C" pip_helper_t *pip_helper_create(int channel_id, const pip_helper_conf
 		return nullptr;
 	}
 	p->channel_id = channel_id;
-	p->pip_ow = (cfg->pip_w + 1) & ~1;
-	p->pip_oh = (cfg->pip_h + 1) & ~1;
+	{
+		int ow = (cfg->pip_w + 1) & ~1;
+		int oh = (cfg->pip_h + 1) & ~1;
+		p->pip_ow = (ow / 4) * 4;
+		p->pip_oh = (oh / 4) * 4;
+	}
 	p->pip_x = cfg->pip_x;
 	p->pip_y = cfg->pip_y;
+	p->stale_timeout_cfg_ms = static_cast<int32_t>(cfg->pip_overlay_stale_timeout_ms);
+
+	const int nt = cfg->pip_tile_n_tiles;
+	if (nt < 0 || nt > my_uvc_pip::kPipTileLayoutMax) {
+		set_err("pip_tile_n_tiles out of range");
+		delete p;
+		return nullptr;
+	}
+	if (cfg->pip_tile_gap_px < 0 || cfg->pip_tile_margin_px < 0) {
+		set_err("pip_tile_gap_px/margin_px invalid");
+		delete p;
+		return nullptr;
+	}
+	if (nt > 0) {
+		my_uvc_pip::PipTileLayoutSpec tls{};
+		tls.canvas_w = cfg->canvas_width;
+		tls.canvas_h = cfg->canvas_height;
+		tls.n_tiles = nt;
+		tls.gap_px = cfg->pip_tile_gap_px;
+		tls.margin_px = cfg->pip_tile_margin_px;
+		std::array<my_uvc_pip::PipTileRect, my_uvc_pip::kPipTileLayoutMax> tr{};
+		const int got = my_uvc_pip::pip_tile_layout_bottom_third(tls, &tr);
+		if (got != nt) {
+			set_err("pip tile layout invalid for canvas");
+			delete p;
+			return nullptr;
+		}
+		p->tile_n_tiles = nt;
+		p->tile_rects = tr;
+		p->tile_nv12_cache.resize(static_cast<size_t>(nt));
+		p->tile_last_update_ms.assign(static_cast<size_t>(nt), 0);
+		p->tile_has_valid.assign(static_cast<size_t>(nt), 0);
+	}
 
 	if (!pip_hw_init(&p->hw, cfg->canvas_width, cfg->canvas_height, cfg->pip_jpeg_quality)) {
 		set_err("pip_hw_init failed");
@@ -180,6 +247,7 @@ extern "C" pip_helper_t *pip_helper_create(int channel_id, const pip_helper_conf
 		return nullptr;
 	}
 
+#if MY_UVC_PIP_HELPER_TRANSITIONAL_IO
 	const std::string overlay_path = cfg->pip_overlay_path;
 	std::error_code ec;
 	const bool overlay_is_dir = fs::is_directory(fs::path(overlay_path), ec) && !ec;
@@ -243,6 +311,22 @@ extern "C" pip_helper_t *pip_helper_create(int channel_id, const pip_helper_conf
 			delete p;
 			return nullptr;
 		}
+		p->presenter_preloaded_jpeg = true;
+	}
+#else
+	(void)cfg->pip_overlay_path;
+	p->overlay_nv12_single.resize(static_cast<size_t>(p->pip_ow) * static_cast<size_t>(p->pip_oh) * 3 / 2);
+#endif
+
+	if (p->overlay_dir_lazy) {
+		p->presenter_has_valid = false;
+	} else {
+#if MY_UVC_PIP_HELPER_TRANSITIONAL_IO
+		p->presenter_has_valid = !p->overlay_nv12_single.empty();
+		p->presenter_last_update_ms = mono_ms_now();
+#else
+		p->presenter_has_valid = false;
+#endif
 	}
 
 	p->ready = true;
@@ -265,6 +349,13 @@ extern "C" void pip_helper_destroy(pip_helper_t *h)
 extern "C" int pip_helper_composite_mjpeg(pip_helper_t *h, const uint8_t *bg_jpeg, size_t bg_jpeg_len,
                                           const uint8_t **out_jpeg, size_t *out_jpeg_len)
 {
+	return pip_helper_composite_mjpeg_ex(h, bg_jpeg, bg_jpeg_len, nullptr, out_jpeg, out_jpeg_len);
+}
+
+extern "C" int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_jpeg, size_t bg_jpeg_len,
+                                             const pip_helper_composite_opts_t *opts, const uint8_t **out_jpeg,
+                                             size_t *out_jpeg_len)
+{
 	g_err[0] = '\0';
 	if (!h || !bg_jpeg || bg_jpeg_len == 0 || !out_jpeg || !out_jpeg_len) {
 		set_err("invalid args");
@@ -276,26 +367,181 @@ extern "C" int pip_helper_composite_mjpeg(pip_helper_t *h, const uint8_t *bg_jpe
 		return -1;
 	}
 
-	const uint8_t *ov_ptr = p->overlay_nv12_single.data();
-	size_t dir_slot = 0;
+	int na = 0;
+	const uint8_t **tnv = nullptr;
+	if (opts) {
+		na = opts->n_active;
+		tnv = opts->tile_nv12;
+	}
+	if (na < 0) {
+		set_err("n_active negative");
+		return -1;
+	}
+	if (na > p->tile_n_tiles) {
+		set_err("n_active > pip_tile_n_tiles");
+		return -1;
+	}
+	if (p->tile_n_tiles == 0 && na > 0) {
+		set_err("n_active set but pip_tile_n_tiles is 0");
+		return -1;
+	}
+	if (na > 0 && !tnv) {
+		set_err("tile_nv12 required when n_active > 0");
+		return -1;
+	}
+	const int *tile_upd = (opts && opts->tile_nv12_updated) ? opts->tile_nv12_updated : nullptr;
+	if (!tile_upd) {
+		for (int i = 0; i < na; i++) {
+			if (!tnv[i]) {
+				set_err("tile_nv12[%d] is null", i);
+				return -1;
+			}
+		}
+	} else {
+		for (int i = 0; i < na; i++) {
+			if (tile_upd[i] && !tnv[i]) {
+				set_err("tile_nv12_updated[%d] without tile_nv12", i);
+				return -1;
+			}
+		}
+	}
+	const int *tile_sw = (opts && opts->tile_src_w) ? opts->tile_src_w : nullptr;
+	const int *tile_sh = (opts && opts->tile_src_h) ? opts->tile_src_h : nullptr;
+	if (tile_sw || tile_sh) {
+		if (!tile_sw || !tile_sh) {
+			set_err("tile_src_w and tile_src_h must both be null or both set");
+			return -1;
+		}
+		for (int i = 0; i < na; i++) {
+			const int tws = tile_sw[i];
+			const int ths = tile_sh[i];
+			if ((tws > 0) != (ths > 0)) {
+				set_err("tile_src_w/h invalid at slot %d", i);
+				return -1;
+			}
+		}
+	}
+
+	const int64_t frame_now_ms = (opts && opts->now_ms != 0) ? opts->now_ms : mono_ms_now();
+
+	const uint8_t *ov_ptr = nullptr;
 	if (p->overlay_dir_lazy) {
 		const size_t n = p->overlay_src_paths.size();
 		if (n == 0) {
 			set_err("overlay dir empty");
 			return -1;
 		}
-		dir_slot = p->overlay_idx % n;
+		const size_t dir_slot = p->overlay_idx % n;
 		if (!ensure_overlay_dir_slot(p, dir_slot)) {
 			set_err("overlay slot decode failed");
 			return -1;
 		}
 		ov_ptr = p->overlay_nv12_cache[dir_slot].data();
+	} else {
+		const size_t need = static_cast<size_t>(p->pip_ow) * static_cast<size_t>(p->pip_oh) * 3 / 2;
+		if (opts) {
+			if (opts->presenter_nv12_updated) {
+				if (!opts->presenter_nv12) {
+					set_err("presenter_nv12_updated without presenter_nv12");
+					return -1;
+				}
+				const int psw = opts->presenter_nv12_src_w;
+				const int psh = opts->presenter_nv12_src_h;
+				if ((psw > 0) != (psh > 0)) {
+					set_err("presenter_nv12_src_w/h must both be 0 or both >0");
+					return -1;
+				}
+				if (p->overlay_nv12_single.size() != need) {
+					set_err("presenter internal buffer size mismatch");
+					return -1;
+				}
+				if (psw > 0 && psh > 0) {
+					if (!pip_hw_nv12_resize_virtual(opts->presenter_nv12, psw, psh, p->overlay_nv12_single.data(),
+					                                p->pip_ow, p->pip_oh)) {
+						set_err("presenter_nv12 resize failed");
+						return -1;
+					}
+				} else {
+					std::memcpy(p->overlay_nv12_single.data(), opts->presenter_nv12, need);
+				}
+				p->presenter_last_update_ms = frame_now_ms;
+				p->presenter_has_valid = true;
+				ov_ptr = p->overlay_nv12_single.data();
+			} else {
+				if (p->presenter_preloaded_jpeg) {
+					/* 预载 JPEG：composite_ex 叠网格时每帧保持主讲人（不套用断流超时）。 */
+					p->presenter_last_update_ms = frame_now_ms;
+					p->presenter_has_valid = true;
+					ov_ptr = p->overlay_nv12_single.data();
+				} else {
+					ov_ptr = my_uvc_pip::pip_presenter_overlay_ptr(p->overlay_nv12_single, p->presenter_has_valid,
+					                                                 p->presenter_last_update_ms, frame_now_ms,
+					                                                 p->stale_timeout_cfg_ms);
+				}
+			}
+		} else {
+			p->presenter_last_update_ms = frame_now_ms;
+			ov_ptr = nullptr;
+			if (!p->overlay_nv12_single.empty() && (p->presenter_preloaded_jpeg || p->presenter_has_valid))
+				ov_ptr = p->overlay_nv12_single.data();
+		}
+	}
+
+	std::vector<PipHwNv12Blit> blits;
+	blits.reserve((ov_ptr ? 1u : 0u) + static_cast<size_t>(std::max(0, na)));
+	if (ov_ptr)
+		blits.push_back(PipHwNv12Blit{ov_ptr, p->pip_ow, p->pip_oh, p->pip_x, p->pip_y, 0, 0});
+	for (int i = 0; i < na; i++) {
+		const my_uvc_pip::PipTileRect &tr = p->tile_rects[static_cast<size_t>(i)];
+		int tow = 0;
+		int toh = 0;
+		if (!my_uvc_pip::pip_tile_rect_nv12_plane_wh(tr, &tow, &toh)) {
+			set_err("tile %d has degenerate NV12 size", i);
+			return -1;
+		}
+		const int tox = (tr.x + 1) & ~1;
+		const int toy = (tr.y + 1) & ~1;
+		const size_t tneed = static_cast<size_t>(tow) * static_cast<size_t>(toh) * 3 / 2;
+		const uint8_t *blit_nv12 = nullptr;
+		int isw = 0;
+		int ish = 0;
+		if (!tile_upd) {
+			blit_nv12 = tnv[i];
+			if (tile_sw && tile_sh && tile_sw[i] > 0 && tile_sh[i] > 0) {
+				isw = tile_sw[i];
+				ish = tile_sh[i];
+			}
+		} else {
+			if (tile_upd[i]) {
+				if (static_cast<size_t>(i) >= p->tile_nv12_cache.size()) {
+					set_err("tile cache not initialized");
+					return -1;
+				}
+				p->tile_nv12_cache[static_cast<size_t>(i)].resize(tneed);
+				if (tile_sw && tile_sh && tile_sw[i] > 0 && tile_sh[i] > 0) {
+					if (!pip_hw_nv12_resize_virtual(tnv[i], tile_sw[i], tile_sh[i],
+					                                p->tile_nv12_cache[static_cast<size_t>(i)].data(), tow, toh)) {
+						set_err("tile %d nv12 resize failed", i);
+						return -1;
+					}
+				} else {
+					std::memcpy(p->tile_nv12_cache[static_cast<size_t>(i)].data(), tnv[i], tneed);
+				}
+				p->tile_last_update_ms[static_cast<size_t>(i)] = frame_now_ms;
+				p->tile_has_valid[static_cast<size_t>(i)] = 1;
+			}
+			blit_nv12 = my_uvc_pip::pip_presenter_overlay_ptr(
+			    p->tile_nv12_cache[static_cast<size_t>(i)], !!p->tile_has_valid[static_cast<size_t>(i)],
+			    p->tile_last_update_ms[static_cast<size_t>(i)], frame_now_ms, p->stale_timeout_cfg_ms);
+		}
+		if (blit_nv12)
+			blits.push_back(PipHwNv12Blit{blit_nv12, tow, toh, tox, toy, isw, ish});
 	}
 
 	p->jpeg_out.clear();
-	if (!pip_hw_composite(p->hw, bg_jpeg, bg_jpeg_len, ov_ptr, p->pip_ow, p->pip_oh, p->pip_x, p->pip_y,
-	                      &p->jpeg_out)) {
-		set_err("pip_hw_composite failed");
+	if (!pip_hw_composite_layers(p->hw, bg_jpeg, bg_jpeg_len, blits.data(), static_cast<int>(blits.size()),
+	                             &p->jpeg_out)) {
+		set_err("pip_hw_composite_layers failed");
 		return -1;
 	}
 

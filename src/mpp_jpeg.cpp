@@ -406,6 +406,31 @@ static bool decode_jpeg(PipHwContext *c,
 	return false;
 }
 
+bool pip_hw_nv12_resize_virtual(const uint8_t *src_nv12, int src_w, int src_h, uint8_t *dst_nv12, int dst_w,
+                                int dst_h)
+{
+	if (!src_nv12 || !dst_nv12)
+		return false;
+	src_w = ALIGN2(src_w);
+	src_h = ALIGN2(src_h);
+	dst_w = ALIGN2(dst_w);
+	dst_h = ALIGN2(dst_h);
+	if (src_w <= 0 || src_h <= 0 || dst_w <= 0 || dst_h <= 0)
+		return false;
+
+	rga_buffer_t src = wrapbuffer_virtualaddr_t(const_cast<uint8_t *>(src_nv12), src_w, src_h, src_w, src_h,
+	                                              RK_FORMAT_YCbCr_420_SP);
+	rga_buffer_t dst =
+	    wrapbuffer_virtualaddr_t(dst_nv12, dst_w, dst_h, dst_w, dst_h, RK_FORMAT_YCbCr_420_SP);
+
+	IM_STATUS st = imresize_t(src, dst, 0, 0, 0, 1);
+	if (st != IM_STATUS_SUCCESS) {
+		HW_LOG("pip_hw_nv12_resize_virtual failed: %s", imStrError_t(st));
+		return false;
+	}
+	return true;
+}
+
 static bool rga_resize_nv12(int src_fd, int src_w, int src_h, int src_hstride, int src_vstride,
                             int dst_fd, int dst_w, int dst_h, int dst_hstride, int dst_vstride) {
 	rga_buffer_t src = wrapbuffer_fd_t(src_fd, src_w, src_h,
@@ -507,12 +532,16 @@ static bool encode_nv12_to_jpeg(PipHwContext *c, std::vector<uint8_t> *out_jpeg)
 	return true;
 }
 
-bool pip_hw_composite(PipHwContext *c,
-                      const uint8_t *jpeg_data, size_t jpeg_len,
-                      const uint8_t *overlay_nv12, int ow, int oh,
-                      int ox, int oy,
-                      std::vector<uint8_t> *out_jpeg) {
+bool pip_hw_composite_layers(PipHwContext *c,
+                             const uint8_t *jpeg_data, size_t jpeg_len,
+                             const PipHwNv12Blit *blits, int n_blits,
+                             std::vector<uint8_t> *out_jpeg)
+{
 	if (!c || !jpeg_data || jpeg_len == 0 || !out_jpeg)
+		return false;
+	if (n_blits < 0)
+		return false;
+	if (n_blits > 0 && !blits)
 		return false;
 
 	/* Step 1: MPP decode JPEG → NV12 */
@@ -544,18 +573,53 @@ bool pip_hw_composite(PipHwContext *c,
 	}
 	mpp_frame_deinit(&dec_frame);
 
-	/* Step 3: NV12 overlay blit (software, small area) */
-	if (overlay_nv12 && ow > 0 && oh > 0) {
-		mpp_buffer_sync_begin(c->canvas_buf);
-		uint8_t *canvas_ptr = static_cast<uint8_t *>(
-			mpp_buffer_get_ptr(c->canvas_buf));
-		blit_nv12(canvas_ptr, c->hor_stride, c->ver_stride,
-		          overlay_nv12, ow, oh, ox, oy);
-		mpp_buffer_sync_end(c->canvas_buf);
+	/* Step 3: NV12 overlay blits（可选 RGA 缩放 + 软件贴图） */
+	mpp_buffer_sync_begin(c->canvas_buf);
+	uint8_t *canvas_ptr = static_cast<uint8_t *>(mpp_buffer_get_ptr(c->canvas_buf));
+	std::vector<uint8_t> scale_scratch;
+	for (int i = 0; i < n_blits; i++) {
+		const PipHwNv12Blit &b = blits[i];
+		if (!b.nv12 || b.dst_w <= 0 || b.dst_h <= 0)
+			continue;
+		const int dw = ALIGN2(b.dst_w);
+		const int dh = ALIGN2(b.dst_h);
+		const bool custom_src = b.src_w > 0 && b.src_h > 0;
+		int sw = custom_src ? b.src_w : b.dst_w;
+		int sh = custom_src ? b.src_h : b.dst_h;
+		sw = ALIGN2(sw);
+		sh = ALIGN2(sh);
+		const uint8_t *blit_src = b.nv12;
+		if (custom_src && (sw != dw || sh != dh)) {
+			const size_t need = static_cast<size_t>(dw) * static_cast<size_t>(dh) * 3 / 2;
+			if (scale_scratch.size() < need)
+				scale_scratch.resize(need);
+			if (!pip_hw_nv12_resize_virtual(b.nv12, sw, sh, scale_scratch.data(), b.dst_w, b.dst_h)) {
+				mpp_buffer_sync_end(c->canvas_buf);
+				return false;
+			}
+			blit_src = scale_scratch.data();
+		}
+		blit_nv12(canvas_ptr, c->hor_stride, c->ver_stride, blit_src, dw, dh, b.ox, b.oy);
 	}
+	mpp_buffer_sync_end(c->canvas_buf);
 
 	/* Step 4: MPP encode canvas NV12 → JPEG */
 	return encode_nv12_to_jpeg(c, out_jpeg);
+}
+
+bool pip_hw_composite(PipHwContext *c,
+                      const uint8_t *jpeg_data, size_t jpeg_len,
+                      const uint8_t *overlay_nv12, int ow, int oh,
+                      int ox, int oy,
+                      std::vector<uint8_t> *out_jpeg)
+{
+	PipHwNv12Blit b[1];
+	int n = 0;
+	if (overlay_nv12 && ow > 0 && oh > 0) {
+		b[0] = {overlay_nv12, ow, oh, ox, oy, 0, 0};
+		n = 1;
+	}
+	return pip_hw_composite_layers(c, jpeg_data, jpeg_len, b, n, out_jpeg);
 }
 
 bool pip_hw_rgb_to_nv12(const uint8_t *rgb, int w, int h,
