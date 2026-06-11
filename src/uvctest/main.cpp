@@ -308,14 +308,14 @@ static size_t pip_tile_nv12_byte_size(const my_uvc_pip::PipTileRect &r)
 }
 
 /**
- * 按槽顺序加载 NV12 测试文件；n_active = min(路径数, tile_n_tiles)。失败时返回 false。
+ * 按槽顺序加载 NV12 测试文件；n_active = min(路径数, tile_n_tiles)。
+ * 每个槽位支持单帧或多帧（自动循环）。失败时返回 false。
  */
 static bool uvctest_load_pip_tile_nv12_test(const StreamChannelContext &ch, int tile_n_tiles,
-                                            std::vector<std::vector<uint8_t>> *buffers,
-                                            std::vector<const uint8_t *> *row_ptrs, int *n_active_out)
+                                            std::vector<std::vector<std::vector<uint8_t>>> *buffers,
+                                            int *n_active_out)
 {
 	buffers->clear();
-	row_ptrs->clear();
 	*n_active_out = 0;
 	if (tile_n_tiles <= 0 || ch.pip_tile_test_nv12_paths.empty())
 		return true;
@@ -345,33 +345,42 @@ static bool uvctest_load_pip_tile_nv12_test(const StreamChannelContext &ch, int 
 
 	const int n_use = std::min(tile_n_tiles, static_cast<int>(paths.size()));
 	for (int i = 0; i < n_use; i++) {
-		if (pip_tile_nv12_byte_size(rects[static_cast<size_t>(i)]) == 0) {
-			log_msg(LOG_ERROR, "ch=%d pip tile %d degenerate rect", ch.channel_id, i);
-			return false;
-		}
-		size_t expected = 0;
+		size_t expected_frame_size = 0;
 		if (ch.pip_tile_test_nv12_src_w > 0 && ch.pip_tile_test_nv12_src_h > 0) {
 			const int sw = (ch.pip_tile_test_nv12_src_w + 1) & ~1;
 			const int sh = (ch.pip_tile_test_nv12_src_h + 1) & ~1;
-			expected = static_cast<size_t>(sw) * static_cast<size_t>(sh) * 3 / 2;
+			expected_frame_size = static_cast<size_t>(sw) * static_cast<size_t>(sh) * 3 / 2;
 		} else {
-			expected = pip_tile_nv12_byte_size(rects[static_cast<size_t>(i)]);
+			expected_frame_size = pip_tile_nv12_byte_size(rects[static_cast<size_t>(i)]);
 		}
-		std::vector<uint8_t> raw;
-		if (!read_file_all(paths[static_cast<size_t>(i)], &raw)) {
+		if (expected_frame_size == 0) {
+			log_msg(LOG_ERROR, "ch=%d pip tile %d degenerate rect", ch.channel_id, i);
+			return false;
+		}
+
+		std::vector<uint8_t> raw_all;
+		if (!read_file_all(paths[static_cast<size_t>(i)], &raw_all)) {
 			log_msg(LOG_ERROR, "ch=%d read NV12 failed tile=%d path=%s", ch.channel_id, i,
 			        paths[static_cast<size_t>(i)].c_str());
 			return false;
 		}
-		if (raw.size() != expected) {
-			log_msg(LOG_ERROR, "ch=%d NV12 size mismatch tile=%d path=%s (got %zu want %zu)", ch.channel_id, i,
-			        paths[static_cast<size_t>(i)].c_str(), raw.size(), expected);
+
+		if (raw_all.size() == 0 || (raw_all.size() % expected_frame_size) != 0) {
+			log_msg(LOG_ERROR, "ch=%d NV12 size mismatch tile=%d path=%s (got %zu, not a multiple of %zu)",
+			        ch.channel_id, i, paths[static_cast<size_t>(i)].c_str(), raw_all.size(),
+			        expected_frame_size);
 			return false;
 		}
-		buffers->push_back(std::move(raw));
+
+		size_t n_frames = raw_all.size() / expected_frame_size;
+		std::vector<std::vector<uint8_t>> tile_frames;
+		tile_frames.reserve(n_frames);
+		for (size_t f = 0; f < n_frames; f++) {
+			auto it = raw_all.begin() + static_cast<std::vector<uint8_t>::difference_type>(f * expected_frame_size);
+			tile_frames.emplace_back(it, it + static_cast<std::vector<uint8_t>::difference_type>(expected_frame_size));
+		}
+		buffers->push_back(std::move(tile_frames));
 	}
-	for (const auto &b : *buffers)
-		row_ptrs->push_back(b.data());
 	*n_active_out = static_cast<int>(buffers->size());
 	return true;
 }
@@ -543,11 +552,10 @@ void channel_worker(StreamChannelContext ch) {
 		        ch.pip_overlay_path.c_str());
 	}
 
-	std::vector<std::vector<uint8_t>> pip_tile_nv12_store;
-	std::vector<const uint8_t *> pip_tile_nv12_row;
+	std::vector<std::vector<std::vector<uint8_t>>> pip_tile_nv12_store;
 	int pip_tile_composite_n_active = 0;
 	if (pip && ch.pip_tile_n_tiles > 0 && !ch.pip_tile_test_nv12_paths.empty()) {
-		if (!uvctest_load_pip_tile_nv12_test(ch, ch.pip_tile_n_tiles, &pip_tile_nv12_store, &pip_tile_nv12_row,
+		if (!uvctest_load_pip_tile_nv12_test(ch, ch.pip_tile_n_tiles, &pip_tile_nv12_store,
 		                                     &pip_tile_composite_n_active)) {
 			pip_helper_destroy(pip);
 			if (ch.stats)
@@ -624,7 +632,15 @@ void channel_worker(StreamChannelContext ch) {
 				if (pip_tile_composite_n_active > 0) {
 					pip_helper_composite_opts_t po{};
 					po.n_active = pip_tile_composite_n_active;
-					po.tile_nv12 = pip_tile_nv12_row.data();
+
+					const uint8_t *current_tiles[my_uvc_pip::kPipTileLayoutMax];
+					for (int ti = 0; ti < pip_tile_composite_n_active; ti++) {
+						const auto &tile_frames = pip_tile_nv12_store[static_cast<size_t>(ti)];
+						size_t cur_f = send_frame_idx % tile_frames.size();
+						current_tiles[ti] = tile_frames[cur_f].data();
+					}
+					po.tile_nv12 = current_tiles;
+
 					int tile_sw_arr[my_uvc_pip::kPipTileLayoutMax];
 					int tile_sh_arr[my_uvc_pip::kPipTileLayoutMax];
 					if (ch.pip_tile_test_nv12_src_w > 0 && ch.pip_tile_test_nv12_src_h > 0) {

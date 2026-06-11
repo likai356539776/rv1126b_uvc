@@ -36,6 +36,10 @@ struct CliState {
 	bool cli_pip_w = false;
 	bool cli_pip_h = false;
 	bool cli_pip_quality = false;
+	bool cli_pip_tile_n_tiles = false;
+	bool cli_pip_tile_test_nv12_paths = false;
+	bool cli_pip_tile_test_nv12_src_w = false;
+	bool cli_pip_tile_test_nv12_src_h = false;
 };
 
 /** Parse argv (after program name). On Help, caller should print usage and exit 0. */

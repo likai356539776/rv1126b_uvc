@@ -152,6 +152,30 @@ CliParseResult parse_cli(int argc, char **argv, CliState *out)
 				return CliParseResult::BadArg;
 			}
 			out->cli_pip_quality = true;
+		} else if (a == "--pip-tile-n-tiles" && i + 1 < argc) {
+			try {
+				out->cli_cfg.libmy_uvc_pip.pip_tile_n_tiles = std::stoi(argv[++i]);
+			} catch (...) {
+				return CliParseResult::BadArg;
+			}
+			out->cli_pip_tile_n_tiles = true;
+		} else if (a == "--pip-tile-test-nv12-paths" && i + 1 < argc) {
+			out->cli_cfg.uvctest.pip_tile_test_nv12_paths = argv[++i];
+			out->cli_pip_tile_test_nv12_paths = true;
+		} else if (a == "--pip-tile-test-nv12-src-w" && i + 1 < argc) {
+			try {
+				out->cli_cfg.uvctest.pip_tile_test_nv12_src_w = std::stoi(argv[++i]);
+			} catch (...) {
+				return CliParseResult::BadArg;
+			}
+			out->cli_pip_tile_test_nv12_src_w = true;
+		} else if (a == "--pip-tile-test-nv12-src-h" && i + 1 < argc) {
+			try {
+				out->cli_cfg.uvctest.pip_tile_test_nv12_src_h = std::stoi(argv[++i]);
+			} catch (...) {
+				return CliParseResult::BadArg;
+			}
+			out->cli_pip_tile_test_nv12_src_h = true;
 		} else if (a == "-h" || a == "--help") {
 			return CliParseResult::Help;
 		} else {
@@ -211,6 +235,14 @@ void merge_cli_into_config(AppConfig *cfg, const CliState &cli)
 		cfg->libmy_uvc_pip.pip_h = cli.cli_cfg.libmy_uvc_pip.pip_h;
 	if (cli.cli_pip_quality)
 		cfg->libmy_uvc_pip.pip_jpeg_quality = cli.cli_cfg.libmy_uvc_pip.pip_jpeg_quality;
+	if (cli.cli_pip_tile_n_tiles)
+		cfg->libmy_uvc_pip.pip_tile_n_tiles = cli.cli_cfg.libmy_uvc_pip.pip_tile_n_tiles;
+	if (cli.cli_pip_tile_test_nv12_paths)
+		cfg->uvctest.pip_tile_test_nv12_paths = cli.cli_cfg.uvctest.pip_tile_test_nv12_paths;
+	if (cli.cli_pip_tile_test_nv12_src_w)
+		cfg->uvctest.pip_tile_test_nv12_src_w = cli.cli_cfg.uvctest.pip_tile_test_nv12_src_w;
+	if (cli.cli_pip_tile_test_nv12_src_h)
+		cfg->uvctest.pip_tile_test_nv12_src_h = cli.cli_cfg.uvctest.pip_tile_test_nv12_src_h;
 }
 
 bool validate_config(AppConfig *cfg, std::string *err)

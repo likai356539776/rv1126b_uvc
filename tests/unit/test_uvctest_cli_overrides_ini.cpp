@@ -93,5 +93,37 @@ fps = 25
 		if (!uvctest::validate_config(&cfg, &verr))
 			return 5;
 	}
+
+	/* Test new grid tile flags. */
+	{
+		std::vector<std::string> args = {"uvctest",
+		                                   "--pip-tile-n-tiles",
+		                                   "4",
+		                                   "--pip-tile-test-nv12-paths",
+		                                   "/tmp/a.nv12,/tmp/b.nv12",
+		                                   "--pip-tile-test-nv12-src-w",
+		                                   "320",
+		                                   "--pip-tile-test-nv12-src-h",
+		                                   "240"};
+		std::vector<char *> av;
+		for (auto &s : args)
+			av.push_back(s.data());
+		uvctest::CliState cli{};
+		if (uvctest::parse_cli(static_cast<int>(av.size()), av.data(), &cli) != uvctest::CliParseResult::Ok)
+			return 6;
+
+		AppConfig cfg = default_app_config();
+		uvctest::merge_cli_into_config(&cfg, cli);
+
+		if (cfg.libmy_uvc_pip.pip_tile_n_tiles != 4)
+			return 7;
+		if (cfg.uvctest.pip_tile_test_nv12_paths != "/tmp/a.nv12,/tmp/b.nv12")
+			return 8;
+		if (cfg.uvctest.pip_tile_test_nv12_src_w != 320)
+			return 9;
+		if (cfg.uvctest.pip_tile_test_nv12_src_h != 240)
+			return 10;
+	}
+
 	return 0;
 }
