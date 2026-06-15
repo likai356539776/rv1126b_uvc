@@ -195,6 +195,11 @@ void camera_thread_func(std::string yolo_model_path, std::string yolo_labels_pat
 			}
 		}
 
+		if (frame_idx % 30 == 0) {
+			log_msg(LOG_INFO, "camera_thread: frame_idx=%lld, detected %d objects, %d persons",
+			        frame_idx, od_results.count, (int)persons.size());
+		}
+
 		auto new_frame = std::make_shared<FrameData>();
 		new_frame->frame_index = frame_idx;
 		new_frame->bg_w = vw;
