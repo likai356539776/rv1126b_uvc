@@ -607,6 +607,62 @@ bool pip_hw_composite_layers(PipHwContext *c,
 	return encode_nv12_to_jpeg(c, out_jpeg);
 }
 
+bool pip_hw_composite_layers_nv12(PipHwContext *c,
+                                  const uint8_t *bg_nv12, int bg_w, int bg_h,
+                                  const PipHwNv12Blit *blits, int n_blits,
+                                  std::vector<uint8_t> *out_jpeg)
+{
+	if (!c || !bg_nv12 || bg_w <= 0 || bg_h <= 0 || !out_jpeg)
+		return false;
+	if (n_blits < 0)
+		return false;
+	if (n_blits > 0 && !blits)
+		return false;
+
+	/* Step 1: RGA resize camera NV12 → canvas NV12 */
+	rga_buffer_t src = wrapbuffer_virtualaddr_t(const_cast<uint8_t *>(bg_nv12), bg_w, bg_h, bg_w, bg_h, RK_FORMAT_YCbCr_420_SP);
+	rga_buffer_t dst = wrapbuffer_virtualaddr_t(static_cast<uint8_t *>(mpp_buffer_get_ptr(c->canvas_buf)), c->canvas_w, c->canvas_h, c->hor_stride, c->ver_stride, RK_FORMAT_YCbCr_420_SP);
+
+	IM_STATUS st = imresize_t(src, dst, 0, 0, 0, 1);
+	if (st != IM_STATUS_SUCCESS) {
+		HW_LOG("pip_hw_composite_layers_nv12 RGA background resize failed: %s", imStrError_t(st));
+		return false;
+	}
+
+	/* Step 2: NV12 overlay blits */
+	mpp_buffer_sync_begin(c->canvas_buf);
+	uint8_t *canvas_ptr = static_cast<uint8_t *>(mpp_buffer_get_ptr(c->canvas_buf));
+	std::vector<uint8_t> scale_scratch;
+	for (int i = 0; i < n_blits; i++) {
+		const PipHwNv12Blit &b = blits[i];
+		if (!b.nv12 || b.dst_w <= 0 || b.dst_h <= 0)
+			continue;
+		const int dw = ALIGN2(b.dst_w);
+		const int dh = ALIGN2(b.dst_h);
+		const bool custom_src = b.src_w > 0 && b.src_h > 0;
+		int sw = custom_src ? b.src_w : b.dst_w;
+		int sh = custom_src ? b.src_h : b.dst_h;
+		sw = ALIGN2(sw);
+		sh = ALIGN2(sh);
+		const uint8_t *blit_src = b.nv12;
+		if (custom_src && (sw != dw || sh != dh)) {
+			const size_t need = static_cast<size_t>(dw) * static_cast<size_t>(dh) * 3 / 2;
+			if (scale_scratch.size() < need)
+				scale_scratch.resize(need);
+			if (!pip_hw_nv12_resize_virtual(b.nv12, sw, sh, scale_scratch.data(), b.dst_w, b.dst_h)) {
+				mpp_buffer_sync_end(c->canvas_buf);
+				return false;
+			}
+			blit_src = scale_scratch.data();
+		}
+		blit_nv12(canvas_ptr, c->hor_stride, c->ver_stride, blit_src, dw, dh, b.ox, b.oy);
+	}
+	mpp_buffer_sync_end(c->canvas_buf);
+
+	/* Step 3: MPP encode canvas NV12 → JPEG */
+	return encode_nv12_to_jpeg(c, out_jpeg);
+}
+
 bool pip_hw_composite(PipHwContext *c,
                       const uint8_t *jpeg_data, size_t jpeg_len,
                       const uint8_t *overlay_nv12, int ow, int oh,

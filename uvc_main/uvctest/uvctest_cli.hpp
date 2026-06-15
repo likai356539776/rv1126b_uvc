@@ -40,6 +40,12 @@ struct CliState {
 	bool cli_pip_tile_test_nv12_paths = false;
 	bool cli_pip_tile_test_nv12_src_w = false;
 	bool cli_pip_tile_test_nv12_src_h = false;
+	std::string yolo_model = "/userdata/yolov8n.rknn";
+	std::string yolo_labels = "/userdata/coco_80_labels_list.txt";
+	std::string camera_node = "/dev/video0";
+	bool cli_yolo_model = false;
+	bool cli_yolo_labels = false;
+	bool cli_camera_node = false;
 };
 
 /** Parse argv (after program name). On Help, caller should print usage and exit 0. */

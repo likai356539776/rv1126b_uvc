@@ -30,6 +30,11 @@ bool pip_hw_composite_layers(PipHwContext *ctx,
                              const PipHwNv12Blit *blits, int n_blits,
                              std::vector<uint8_t> *out_jpeg);
 
+bool pip_hw_composite_layers_nv12(PipHwContext *ctx,
+                                  const uint8_t *bg_nv12, int bg_w, int bg_h,
+                                  const PipHwNv12Blit *blits, int n_blits,
+                                  std::vector<uint8_t> *out_jpeg);
+
 bool pip_hw_composite(PipHwContext *ctx,
                       const uint8_t *jpeg_data, size_t jpeg_len,
                       const uint8_t *overlay_nv12, int ow, int oh,

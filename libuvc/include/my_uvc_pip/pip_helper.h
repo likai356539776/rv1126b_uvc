@@ -102,6 +102,10 @@ int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_jpeg, size_
                                   const pip_helper_composite_opts_t *opts, const uint8_t **out_jpeg,
                                   size_t *out_jpeg_len);
 
+int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8_t *bg_nv12, int bg_w, int bg_h,
+                                         const pip_helper_composite_opts_t *opts, const uint8_t **out_jpeg,
+                                         size_t *out_jpeg_len);
+
 /** Legacy alias for logs; same as pip_helper_version(). */
 const char *pip_helper_stub_version(void);
 

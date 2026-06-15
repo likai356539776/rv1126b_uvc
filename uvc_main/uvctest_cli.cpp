@@ -176,6 +176,15 @@ CliParseResult parse_cli(int argc, char **argv, CliState *out)
 				return CliParseResult::BadArg;
 			}
 			out->cli_pip_tile_test_nv12_src_h = true;
+		} else if (a == "--yolo-model" && i + 1 < argc) {
+			out->yolo_model = argv[++i];
+			out->cli_yolo_model = true;
+		} else if (a == "--yolo-labels" && i + 1 < argc) {
+			out->yolo_labels = argv[++i];
+			out->cli_yolo_labels = true;
+		} else if (a == "--camera-node" && i + 1 < argc) {
+			out->camera_node = argv[++i];
+			out->cli_camera_node = true;
 		} else if (a == "-h" || a == "--help") {
 			return CliParseResult::Help;
 		} else {

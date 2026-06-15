@@ -772,6 +772,13 @@ static void _uvc_user_fill_buffer(struct uvc_video *v, struct uvc_device *dev,
 			if (buf->length >= buffer->size && buffer->buffer) {
 				buf->bytesused = buffer->size;
 				memcpy(dev->mem[buf->index].start, buffer->buffer, buffer->size);
+			} else {
+				static int s_warn_cnt = 0;
+				if (s_warn_cnt++ % 30 == 0) {
+					printf("UVC WARNING: frame size %zu exceeds V4L2 buffer length %u! Dropping frame.\n",
+					       buffer->size, buf->length);
+				}
+				buf->bytesused = 0;
 			}
 		} else {
 			buf->bytesused = buf->length;
@@ -790,6 +797,13 @@ static void _uvc_user_fill_buffer(struct uvc_video *v, struct uvc_device *dev,
 			if (buf->length >= v->buffer_s->size && v->buffer_s->buffer) {
 				buf->bytesused = v->buffer_s->size;
 				memcpy(dev->mem[buf->index].start, v->buffer_s->buffer, v->buffer_s->size);
+			} else {
+				static int s_warn_cnt = 0;
+				if (s_warn_cnt++ % 30 == 0) {
+					printf("UVC WARNING (stale): frame size %zu exceeds V4L2 buffer length %u! Dropping frame.\n",
+					       v->buffer_s->size, buf->length);
+				}
+				buf->bytesused = 0;
 			}
 		}
 	} else {
