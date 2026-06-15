@@ -6,6 +6,7 @@
 #include "uvctest/uvctest_cli.hpp"
 #include "camera_rockit_vi_vo.h"
 #include "yolo_person_detector.h"
+#include "vendor/yolov8/postprocess.h"
 
 #include <array>
 #include <atomic>
@@ -198,6 +199,16 @@ void camera_thread_func(std::string yolo_model_path, std::string yolo_labels_pat
 		if (frame_idx % 30 == 0) {
 			log_msg(LOG_INFO, "camera_thread: frame_idx=%lld, detected %d objects, %d persons",
 			        frame_idx, od_results.count, (int)persons.size());
+			for (int i = 0; i < od_results.count; i++) {
+				log_msg(LOG_INFO, "  obj[%d]: class=%d, name=%s, score=%.2f, box=[%d,%d,%d,%d]",
+				        i, od_results.results[i].cls_id,
+				        coco_cls_to_name(od_results.results[i].cls_id),
+				        od_results.results[i].prop,
+				        od_results.results[i].box.left,
+				        od_results.results[i].box.top,
+				        od_results.results[i].box.right,
+				        od_results.results[i].box.bottom);
+			}
 		}
 
 		auto new_frame = std::make_shared<FrameData>();
