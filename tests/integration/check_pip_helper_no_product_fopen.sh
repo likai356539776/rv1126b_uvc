@@ -11,13 +11,13 @@ fi
 
 hits=""
 if command -v rg >/dev/null 2>&1; then
-	hits=$(rg -n '\bfopen\s*\(' src/pip_helper src/pip_mjpeg.cpp 2>/dev/null || true)
+	hits=$(rg -n '\bfopen\s*\(' libuvc/src/pip_helper libuvc/src/pip_mjpeg.cpp 2>/dev/null || true)
 else
-	hits=$(grep -R -n 'fopen' src/pip_helper src/pip_mjpeg.cpp 2>/dev/null || true)
+	hits=$(grep -R -n 'fopen' libuvc/src/pip_helper libuvc/src/pip_mjpeg.cpp 2>/dev/null || true)
 fi
 
 if [[ -n "${hits}" ]]; then
-	echo "check_pip_helper_no_product_fopen: transitional: fopen still present under src/pip_helper (remove when v1.12 NV12 API is done):"
+	echo "check_pip_helper_no_product_fopen: transitional: fopen still present under libuvc/src/pip_helper (remove when v1.12 NV12 API is done):"
 	echo "${hits}" | head -n 20
 	if [[ "${strict}" -eq 1 ]]; then
 		echo "check_pip_helper_no_product_fopen: FAIL (--strict)"
@@ -27,5 +27,5 @@ if [[ -n "${hits}" ]]; then
 	exit 0
 fi
 
-echo "check_pip_helper_no_product_fopen: ok (no fopen in src/pip_helper or src/pip_mjpeg.cpp)"
+echo "check_pip_helper_no_product_fopen: ok (no fopen in libuvc/src/pip_helper or libuvc/src/pip_mjpeg.cpp)"
 exit 0

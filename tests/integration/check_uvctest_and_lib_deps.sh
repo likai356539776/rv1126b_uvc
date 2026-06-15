@@ -19,8 +19,8 @@ BUILD_DIR="${1:?usage: $0 <build-dir e.g. build-rv1126b>}"
 READELF="${READELF:-readelf}"
 LDD="${LDD:-ldd}"
 
-SO="${BUILD_DIR}/libmy_uvc.so.1.0.0"
-BIN="${BUILD_DIR}/uvctest"
+SO="${BUILD_DIR}/libuvc/libmy_uvc.so.1.0.0"
+BIN="${BUILD_DIR}/uvc_main/uvctest"
 
 for f in "${SO}" "${BIN}"; do
 	if [[ ! -f "${f}" ]]; then

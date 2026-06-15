@@ -102,8 +102,8 @@ else
 fi
 
 # Deploy artifacts: primary binary `uvctest`, shared lib, usb script, configs.
-adb_exec push "${PROJECT_DIR}/build-rv1126b/uvctest" /usr/bin/
-adb_exec push "${PROJECT_DIR}/build-rv1126b/libmy_uvc.so.1.0.0" /usr/lib/
+adb_exec push "${PROJECT_DIR}/build-rv1126b/uvc_main/uvctest" /usr/bin/
+adb_exec push "${PROJECT_DIR}/build-rv1126b/libuvc/libmy_uvc.so.1.0.0" /usr/lib/
 adb_exec shell ln -sf libmy_uvc.so.1.0.0 /usr/lib/libmy_uvc.so.1
 adb_exec shell ln -sf libmy_uvc.so.1 /usr/lib/libmy_uvc.so
 adb_exec push "${PROJECT_DIR}/scripts/my_uvc_usb_config.sh" /usr/bin/

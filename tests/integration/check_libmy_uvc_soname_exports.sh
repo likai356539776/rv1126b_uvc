@@ -7,9 +7,9 @@ BUILD_DIR="${1:?usage: $0 <build-dir e.g. build-rv1126b>}"
 READELF="${READELF:-readelf}"
 NM="${NM:-nm}"
 
-SO="${BUILD_DIR}/libmy_uvc.so.1.0.0"
-BIN="${BUILD_DIR}/uvctest"
-ARCHIVE="${BUILD_DIR}/libmy_uvc_pip_helper.a"
+SO="${BUILD_DIR}/libuvc/libmy_uvc.so.1.0.0"
+BIN="${BUILD_DIR}/uvc_main/uvctest"
+ARCHIVE="${BUILD_DIR}/libuvc/libmy_uvc_pip_helper.a"
 
 for f in "${SO}" "${BIN}"; do
 	if [[ ! -f "${f}" ]]; then

@@ -39,10 +39,10 @@ run_check()
 	need_f "${ROOT}/docs/README.md"
 	need_f "${ROOT}/HANDOVER.md"
 	need_f "${ROOT}/CHANGELOG.md"
-	need_f "${ROOT}/include/my_uvc/my_uvc.h"
+	need_f "${ROOT}/libuvc/include/my_uvc/my_uvc.h"
 	need_f "${ROOT}/config/README_CONFIG.md"
-	if ! grep -q 'my_uvc_load_ini_section_only' "${ROOT}/include/my_uvc/my_uvc.h"; then
-		echo "missing C API: my_uvc_load_ini_section_only in include/my_uvc/my_uvc.h"
+	if ! grep -q 'my_uvc_load_ini_section_only' "${ROOT}/libuvc/include/my_uvc/my_uvc.h"; then
+		echo "missing C API: my_uvc_load_ini_section_only in libuvc/include/my_uvc/my_uvc.h"
 		exit 1
 	fi
 	echo "doc_deploy_walkthrough_smoke check: ok (install script, split configs, docs, my_uvc.h C API)"
