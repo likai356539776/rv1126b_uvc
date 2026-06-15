@@ -83,6 +83,7 @@ void get_aligned_crop_box(int src_w, int src_h, const image_rect_t &box, image_r
 	int w = box.right - box.left + 1;
 	int h = box.bottom - box.top + 1;
 
+	// RGA NV12 requires width aligned to 16, height/x/y aligned to 2
 	int aw = (w + 15) & ~15;
 	int ah = (h + 1) & ~1;
 
@@ -92,18 +93,28 @@ void get_aligned_crop_box(int src_w, int src_h, const image_rect_t &box, image_r
 	int left = cx - aw / 2;
 	int top = cy - ah / 2;
 
+	// Clamp to source bounds
 	if (left < 0) left = 0;
 	if (top < 0) top = 0;
 	if (left + aw > src_w) left = src_w - aw;
 	if (top + ah > src_h) top = src_h - ah;
 
+	// Second clamp after potential negative adjustment
 	if (left < 0) { left = 0; aw = (src_w / 16) * 16; }
-	if (top < 0) { top = 0; ah = (src_h / 2) * 2; }
+	if (top < 0)  { top = 0;  ah = (src_h / 2) * 2; }
 
-	src_box->left = left;
-	src_box->top = top;
-	src_box->right = left + aw - 1;
-	src_box->bottom = top + ah - 1;
+	// RGA requires x and y coordinates also 2-pixel aligned for YUV formats
+	left = left & ~1;
+	top  = top  & ~1;
+
+	// After aligning left/top down, ensure we don't exceed src bounds
+	if (left + aw > src_w) aw = ((src_w - left) / 16) * 16;
+	if (top  + ah > src_h) ah = ((src_h - top)  / 2)  * 2;
+
+	src_box->left   = left;
+	src_box->top    = top;
+	src_box->right  = left + aw - 1;
+	src_box->bottom = top  + ah - 1;
 
 	*crop_w = aw;
 	*crop_h = ah;
@@ -224,13 +235,18 @@ void camera_thread_func(std::string yolo_model_path, std::string yolo_labels_pat
 		new_frame->bg_h = vh;
 		new_frame->bg_nv12.assign(nv12_data, nv12_data + vw * vh * 3 / 2);
 
-		int n_tiles = std::min((int)persons.size(), my_uvc_pip::kPipTileLayoutMax);
+		int total_persons = (int)persons.size();
+		int n_tiles = 0;
+		if (total_persons > 1) {
+			n_tiles = std::min(total_persons - 1, my_uvc_pip::kPipTileLayoutMax);
+		}
 		new_frame->tiles.resize(n_tiles);
 
 		for (int i = 0; i < n_tiles; i++) {
+			const auto &person = persons[i + 1];
 			image_rect_t crop_box{};
 			int crop_w = 0, crop_h = 0;
-			get_aligned_crop_box(vw, vh, persons[i].box, &crop_box, &crop_w, &crop_h);
+			get_aligned_crop_box(vw, vh, person.box, &crop_box, &crop_w, &crop_h);
 
 			new_frame->tiles[i].w = crop_w;
 			new_frame->tiles[i].h = crop_h;

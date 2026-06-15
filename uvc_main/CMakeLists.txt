@@ -1,10 +1,7 @@
 # uvc_main/CMakeLists.txt
 
-set(MODEL_ZOO_DIR "/home/kama/workspace/ubuntu20.04/rknpu_work/rknn_model_zoo")
 set(TARGET_SOC "rv1126b")
-
-add_definitions(-DRKNPU1)
-
+set(MODEL_ZOO_DIR "/home/kama/workspace/ubuntu20.04/rknpu_work/rknn_model_zoo")
 # Import model zoo subdirectories
 add_subdirectory(${MODEL_ZOO_DIR}/3rdparty 3rdparty.out)
 add_subdirectory(${MODEL_ZOO_DIR}/utils utils.out)
@@ -16,7 +13,7 @@ add_executable(uvc_main
 	../libuvc/src/app_config.cpp
 	yolo_person_detector.cc
 	vendor/yolov8/postprocess.cc
-	vendor/yolov8/rknpu1/yolov8.cc
+	vendor/yolov8/rknpu2/yolov8.cc
 	camera_rockit_vi_vo.cc
 	app_log.cc
 )

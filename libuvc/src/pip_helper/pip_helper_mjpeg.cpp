@@ -318,6 +318,10 @@ extern "C" pip_helper_t *pip_helper_create(int channel_id, const pip_helper_conf
 	p->overlay_nv12_single.resize(static_cast<size_t>(p->pip_ow) * static_cast<size_t>(p->pip_oh) * 3 / 2);
 #endif
 
+	if (p->overlay_nv12_single.empty()) {
+		p->overlay_nv12_single.resize(static_cast<size_t>(p->pip_ow) * static_cast<size_t>(p->pip_oh) * 3 / 2);
+	}
+
 	if (p->overlay_dir_lazy) {
 		p->presenter_has_valid = false;
 	} else {
@@ -425,65 +429,57 @@ extern "C" int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_
 	const int64_t frame_now_ms = (opts && opts->now_ms != 0) ? opts->now_ms : mono_ms_now();
 
 	const uint8_t *ov_ptr = nullptr;
-	if (p->overlay_dir_lazy) {
-		const size_t n = p->overlay_src_paths.size();
-		if (n == 0) {
-			set_err("overlay dir empty");
+	const size_t need = static_cast<size_t>(p->pip_ow) * static_cast<size_t>(p->pip_oh) * 3 / 2;
+
+	if (opts && opts->presenter_nv12_updated) {
+		if (!opts->presenter_nv12) {
+			set_err("presenter_nv12_updated without presenter_nv12");
 			return -1;
 		}
-		const size_t dir_slot = p->overlay_idx % n;
-		if (!ensure_overlay_dir_slot(p, dir_slot)) {
-			set_err("overlay slot decode failed");
+		const int psw = opts->presenter_nv12_src_w;
+		const int psh = opts->presenter_nv12_src_h;
+		if ((psw > 0) != (psh > 0)) {
+			set_err("presenter_nv12_src_w/h must both be 0 or both >0");
 			return -1;
 		}
-		ov_ptr = p->overlay_nv12_cache[dir_slot].data();
-	} else {
-		const size_t need = static_cast<size_t>(p->pip_ow) * static_cast<size_t>(p->pip_oh) * 3 / 2;
-		if (opts) {
-			if (opts->presenter_nv12_updated) {
-				if (!opts->presenter_nv12) {
-					set_err("presenter_nv12_updated without presenter_nv12");
-					return -1;
-				}
-				const int psw = opts->presenter_nv12_src_w;
-				const int psh = opts->presenter_nv12_src_h;
-				if ((psw > 0) != (psh > 0)) {
-					set_err("presenter_nv12_src_w/h must both be 0 or both >0");
-					return -1;
-				}
-				if (p->overlay_nv12_single.size() != need) {
-					set_err("presenter internal buffer size mismatch");
-					return -1;
-				}
-				if (psw > 0 && psh > 0) {
-					if (!pip_hw_nv12_resize_virtual(opts->presenter_nv12, psw, psh, p->overlay_nv12_single.data(),
-					                                p->pip_ow, p->pip_oh)) {
-						set_err("presenter_nv12 resize failed");
-						return -1;
-					}
-				} else {
-					std::memcpy(p->overlay_nv12_single.data(), opts->presenter_nv12, need);
-				}
-				p->presenter_last_update_ms = frame_now_ms;
-				p->presenter_has_valid = true;
-				ov_ptr = p->overlay_nv12_single.data();
-			} else {
-				if (p->presenter_preloaded_jpeg) {
-					/* 预载 JPEG：composite_ex 叠网格时每帧保持主讲人（不套用断流超时）。 */
-					p->presenter_last_update_ms = frame_now_ms;
-					p->presenter_has_valid = true;
-					ov_ptr = p->overlay_nv12_single.data();
-				} else {
-					ov_ptr = my_uvc_pip::pip_presenter_overlay_ptr(p->overlay_nv12_single, p->presenter_has_valid,
-					                                                 p->presenter_last_update_ms, frame_now_ms,
-					                                                 p->stale_timeout_cfg_ms);
-				}
+		if (p->overlay_nv12_single.size() != need) {
+			p->overlay_nv12_single.resize(need);
+		}
+		if (psw > 0 && psh > 0) {
+			if (!pip_hw_nv12_resize_virtual(opts->presenter_nv12, psw, psh, p->overlay_nv12_single.data(),
+			                                p->pip_ow, p->pip_oh)) {
+				set_err("presenter_nv12 resize failed");
+				return -1;
 			}
 		} else {
+			std::memcpy(p->overlay_nv12_single.data(), opts->presenter_nv12, need);
+		}
+		p->presenter_last_update_ms = frame_now_ms;
+		p->presenter_has_valid = true;
+		ov_ptr = p->overlay_nv12_single.data();
+	} else {
+		if (p->presenter_preloaded_jpeg) {
 			p->presenter_last_update_ms = frame_now_ms;
-			ov_ptr = nullptr;
-			if (!p->overlay_nv12_single.empty() && (p->presenter_preloaded_jpeg || p->presenter_has_valid))
-				ov_ptr = p->overlay_nv12_single.data();
+			p->presenter_has_valid = true;
+			ov_ptr = p->overlay_nv12_single.data();
+		} else {
+			ov_ptr = my_uvc_pip::pip_presenter_overlay_ptr(p->overlay_nv12_single, p->presenter_has_valid,
+			                                               p->presenter_last_update_ms, frame_now_ms,
+			                                               p->stale_timeout_cfg_ms);
+		}
+
+		if (!ov_ptr && p->overlay_dir_lazy) {
+			const size_t n = p->overlay_src_paths.size();
+			if (n == 0) {
+				set_err("overlay dir empty");
+				return -1;
+			}
+			const size_t dir_slot = p->overlay_idx % n;
+			if (!ensure_overlay_dir_slot(p, dir_slot)) {
+				set_err("overlay slot decode failed");
+				return -1;
+			}
+			ov_ptr = p->overlay_nv12_cache[dir_slot].data();
 		}
 	}
 
@@ -629,64 +625,57 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8
 	const int64_t frame_now_ms = (opts && opts->now_ms != 0) ? opts->now_ms : mono_ms_now();
 
 	const uint8_t *ov_ptr = nullptr;
-	if (p->overlay_dir_lazy) {
-		const size_t n = p->overlay_src_paths.size();
-		if (n == 0) {
-			set_err("overlay dir empty");
+	const size_t need = static_cast<size_t>(p->pip_ow) * static_cast<size_t>(p->pip_oh) * 3 / 2;
+
+	if (opts && opts->presenter_nv12_updated) {
+		if (!opts->presenter_nv12) {
+			set_err("presenter_nv12_updated without presenter_nv12");
 			return -1;
 		}
-		const size_t dir_slot = p->overlay_idx % n;
-		if (!ensure_overlay_dir_slot(p, dir_slot)) {
-			set_err("overlay slot decode failed");
+		const int psw = opts->presenter_nv12_src_w;
+		const int psh = opts->presenter_nv12_src_h;
+		if ((psw > 0) != (psh > 0)) {
+			set_err("presenter_nv12_src_w/h must both be 0 or both >0");
 			return -1;
 		}
-		ov_ptr = p->overlay_nv12_cache[dir_slot].data();
-	} else {
-		const size_t need = static_cast<size_t>(p->pip_ow) * static_cast<size_t>(p->pip_oh) * 3 / 2;
-		if (opts) {
-			if (opts->presenter_nv12_updated) {
-				if (!opts->presenter_nv12) {
-					set_err("presenter_nv12_updated without presenter_nv12");
-					return -1;
-				}
-				const int psw = opts->presenter_nv12_src_w;
-				const int psh = opts->presenter_nv12_src_h;
-				if ((psw > 0) != (psh > 0)) {
-					set_err("presenter_nv12_src_w/h must both be 0 or both >0");
-					return -1;
-				}
-				if (p->overlay_nv12_single.size() != need) {
-					set_err("presenter internal buffer size mismatch");
-					return -1;
-				}
-				if (psw > 0 && psh > 0) {
-					if (!pip_hw_nv12_resize_virtual(opts->presenter_nv12, psw, psh, p->overlay_nv12_single.data(),
-					                                p->pip_ow, p->pip_oh)) {
-						set_err("presenter_nv12 resize failed");
-						return -1;
-					}
-				} else {
-					std::memcpy(p->overlay_nv12_single.data(), opts->presenter_nv12, need);
-				}
-				p->presenter_last_update_ms = frame_now_ms;
-				p->presenter_has_valid = true;
-				ov_ptr = p->overlay_nv12_single.data();
-			} else {
-				if (p->presenter_preloaded_jpeg) {
-					p->presenter_last_update_ms = frame_now_ms;
-					p->presenter_has_valid = true;
-					ov_ptr = p->overlay_nv12_single.data();
-				} else {
-					ov_ptr = my_uvc_pip::pip_presenter_overlay_ptr(p->overlay_nv12_single, p->presenter_has_valid,
-					                                                 p->presenter_last_update_ms, frame_now_ms,
-					                                                 p->stale_timeout_cfg_ms);
-				}
+		if (p->overlay_nv12_single.size() != need) {
+			p->overlay_nv12_single.resize(need);
+		}
+		if (psw > 0 && psh > 0) {
+			if (!pip_hw_nv12_resize_virtual(opts->presenter_nv12, psw, psh, p->overlay_nv12_single.data(),
+			                                p->pip_ow, p->pip_oh)) {
+				set_err("presenter_nv12 resize failed");
+				return -1;
 			}
 		} else {
+			std::memcpy(p->overlay_nv12_single.data(), opts->presenter_nv12, need);
+		}
+		p->presenter_last_update_ms = frame_now_ms;
+		p->presenter_has_valid = true;
+		ov_ptr = p->overlay_nv12_single.data();
+	} else {
+		if (p->presenter_preloaded_jpeg) {
 			p->presenter_last_update_ms = frame_now_ms;
-			ov_ptr = nullptr;
-			if (!p->overlay_nv12_single.empty() && (p->presenter_preloaded_jpeg || p->presenter_has_valid))
-				ov_ptr = p->overlay_nv12_single.data();
+			p->presenter_has_valid = true;
+			ov_ptr = p->overlay_nv12_single.data();
+		} else {
+			ov_ptr = my_uvc_pip::pip_presenter_overlay_ptr(p->overlay_nv12_single, p->presenter_has_valid,
+			                                               p->presenter_last_update_ms, frame_now_ms,
+			                                               p->stale_timeout_cfg_ms);
+		}
+
+		if (!ov_ptr && p->overlay_dir_lazy) {
+			const size_t n = p->overlay_src_paths.size();
+			if (n == 0) {
+				set_err("overlay dir empty");
+				return -1;
+			}
+			const size_t dir_slot = p->overlay_idx % n;
+			if (!ensure_overlay_dir_slot(p, dir_slot)) {
+				set_err("overlay slot decode failed");
+				return -1;
+			}
+			ov_ptr = p->overlay_nv12_cache[dir_slot].data();
 		}
 	}
 

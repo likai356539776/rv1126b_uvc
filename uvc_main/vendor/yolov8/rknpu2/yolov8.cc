@@ -27,7 +27,7 @@ static void dump_tensor_attr(rknn_tensor_attr *attr)
 {
     APP_LOGI("  index=%d, name=%s, n_dims=%d, dims=[%d, %d, %d, %d], n_elems=%d, size=%d, fmt=%s, type=%s, qnt_type=%s, "
            "zp=%d, scale=%f\n",
-           attr->index, attr->name, attr->n_dims, attr->dims[3], attr->dims[2], attr->dims[1], attr->dims[0],
+           attr->index, attr->name, attr->n_dims, attr->dims[0], attr->dims[1], attr->dims[2], attr->dims[3],
            attr->n_elems, attr->size, get_format_string(attr->fmt), get_type_string(attr->type),
            get_qnt_type_string(attr->qnt_type), attr->zp, attr->scale);
 }
@@ -47,7 +47,7 @@ int init_yolov8_model(const char *model_path, rknn_app_context_t *app_ctx)
         return -1;
     }
 
-    ret = rknn_init(&ctx, model, model_len, 0, nullptr);
+    ret = rknn_init(&ctx, model, model_len, 0, NULL);
     free(model);
     if (ret < 0)
     {
@@ -101,7 +101,7 @@ int init_yolov8_model(const char *model_path, rknn_app_context_t *app_ctx)
     app_ctx->rknn_ctx = ctx;
 
     // TODO
-    if (output_attrs[0].qnt_type == RKNN_TENSOR_QNT_AFFINE_ASYMMETRIC && output_attrs[0].type == RKNN_TENSOR_UINT8)
+    if (output_attrs[0].qnt_type == RKNN_TENSOR_QNT_AFFINE_ASYMMETRIC && output_attrs[0].type == RKNN_TENSOR_INT8)
     {
         app_ctx->is_quant = true;
     }
@@ -119,28 +119,16 @@ int init_yolov8_model(const char *model_path, rknn_app_context_t *app_ctx)
     if (input_attrs[0].fmt == RKNN_TENSOR_NCHW)
     {
         APP_LOGI("[yolov8] model is NCHW input fmt\n");
-        if (input_attrs[0].n_dims == 4) {
-            app_ctx->model_channel = input_attrs[0].dims[1];
-            app_ctx->model_height  = input_attrs[0].dims[2];
-            app_ctx->model_width   = input_attrs[0].dims[3];
-        } else {
-            app_ctx->model_channel = input_attrs[0].dims[2];
-            app_ctx->model_height  = input_attrs[0].dims[1];
-            app_ctx->model_width   = input_attrs[0].dims[0];
-        }
+        app_ctx->model_channel = input_attrs[0].dims[1];
+        app_ctx->model_height = input_attrs[0].dims[2];
+        app_ctx->model_width = input_attrs[0].dims[3];
     }
     else
     {
         APP_LOGI("[yolov8] model is NHWC input fmt\n");
-        if (input_attrs[0].n_dims == 4) {
-            app_ctx->model_height  = input_attrs[0].dims[1];
-            app_ctx->model_width   = input_attrs[0].dims[2];
-            app_ctx->model_channel = input_attrs[0].dims[3];
-        } else {
-            app_ctx->model_height  = input_attrs[0].dims[2];
-            app_ctx->model_width   = input_attrs[0].dims[1];
-            app_ctx->model_channel = input_attrs[0].dims[0];
-        }
+        app_ctx->model_height = input_attrs[0].dims[1];
+        app_ctx->model_width = input_attrs[0].dims[2];
+        app_ctx->model_channel = input_attrs[0].dims[3];
     }
     APP_LOGI("[yolov8] model input height=%d, width=%d, channel=%d\n",
              app_ctx->model_height, app_ctx->model_width, app_ctx->model_channel);
@@ -175,8 +163,8 @@ int inference_yolov8_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     letterbox_t letter_box;
     rknn_input inputs[app_ctx->io_num.n_input];
     rknn_output outputs[app_ctx->io_num.n_output];
-    const float nms_threshold = NMS_THRESH;      // Default NMS threshold
-    const float box_conf_threshold = BOX_THRESH; // Default box threshold
+    const float nms_threshold = NMS_THRESH;      // 默认的NMS阈值
+    const float box_conf_threshold = BOX_THRESH; // 默认的置信度阈值
     int bg_color = 114;
 
     if ((!app_ctx) || !(img) || (!od_results))
