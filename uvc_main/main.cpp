@@ -12,6 +12,7 @@
 #include <atomic>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <cstdarg>
 #include <cstdint>
@@ -79,16 +80,11 @@ struct FrameData {
 std::shared_ptr<FrameData> g_latest_frame = nullptr;
 std::mutex g_frame_mutex;
 
-void get_aligned_crop_box(int src_w, int src_h, const image_rect_t &box, image_rect_t *src_box, int *crop_w, int *crop_h) {
-	int w = box.right - box.left + 1;
-	int h = box.bottom - box.top + 1;
 
+void get_aligned_crop_box_centered(int src_w, int src_h, int cx, int cy, int w, int h, image_rect_t *src_box, int *crop_w, int *crop_h) {
 	// RGA NV12 requires width aligned to 16, height/x/y aligned to 2
 	int aw = (w + 15) & ~15;
 	int ah = (h + 1) & ~1;
-
-	int cx = box.left + w / 2;
-	int cy = box.top + h / 2;
 
 	int left = cx - aw / 2;
 	int top = cy - ah / 2;
@@ -178,6 +174,17 @@ void camera_thread_func(std::string yolo_model_path, std::string yolo_labels_pat
 
 	long long frame_idx = 0;
 
+	struct SmoothedCenter {
+		double cx = -1.0;
+		double cy = -1.0;
+		double w = 0.0;
+		double h = 0.0;
+		bool active = false;
+		bool moving = false;
+	};
+	SmoothedCenter presenter_center;
+	std::vector<SmoothedCenter> tile_centers(my_uvc_pip::kPipTileLayoutMax);
+
 	while (g_run.load()) {
 		int read_r = rock_reader.ReadNextRgbInto(&camera_rgb_img, 1000);
 		if (read_r != 0) {
@@ -242,11 +249,59 @@ void camera_thread_func(std::string yolo_model_path, std::string yolo_labels_pat
 		}
 		new_frame->tiles.resize(n_tiles);
 
+		// Deactivate unused tile centers
+		for (int i = n_tiles; i < my_uvc_pip::kPipTileLayoutMax; i++) {
+			tile_centers[i].active = false;
+		}
+
 		for (int i = 0; i < n_tiles; i++) {
 			const auto &person = persons[i + 1];
+			int pw = person.box.right - person.box.left + 1;
+			int ph = person.box.bottom - person.box.top + 1;
+			double cx_new = person.box.left + pw / 2.0;
+			double cy_new = person.box.top + ph / 2.0;
+			double w_new = pw;
+			double h_new = ph;
+
+			auto &tc = tile_centers[i];
+			if (tc.active) {
+				double dist = std::hypot(cx_new - tc.cx, cy_new - tc.cy);
+				double dw = std::abs(w_new - tc.w);
+				double dh = std::abs(h_new - tc.h);
+
+				if (dist > 12.0 || dw > 16.0 || dh > 16.0) {
+					tc.moving = true;
+				}
+
+				if (tc.moving) {
+					tc.cx = 0.2 * cx_new + 0.8 * tc.cx;
+					tc.cy = 0.2 * cy_new + 0.8 * tc.cy;
+					tc.w  = 0.2 * w_new  + 0.8 * tc.w;
+					tc.h  = 0.2 * h_new  + 0.8 * tc.h;
+
+					double current_dist = std::hypot(cx_new - tc.cx, cy_new - tc.cy);
+					double current_dw = std::abs(w_new - tc.w);
+					double current_dh = std::abs(h_new - tc.h);
+					if (current_dist < 2.0 && current_dw < 3.0 && current_dh < 3.0) {
+						tc.cx = cx_new;
+						tc.cy = cy_new;
+						tc.w  = w_new;
+						tc.h  = h_new;
+						tc.moving = false;
+					}
+				}
+			} else {
+				tc.cx = cx_new;
+				tc.cy = cy_new;
+				tc.w = w_new;
+				tc.h = h_new;
+				tc.active = true;
+				tc.moving = false;
+			}
+
 			image_rect_t crop_box{};
 			int crop_w = 0, crop_h = 0;
-			get_aligned_crop_box(vw, vh, person.box, &crop_box, &crop_w, &crop_h);
+			get_aligned_crop_box_centered(vw, vh, (int)tc.cx, (int)tc.cy, (int)tc.w, (int)tc.h, &crop_box, &crop_w, &crop_h);
 
 			new_frame->tiles[i].w = crop_w;
 			new_frame->tiles[i].h = crop_h;
@@ -266,9 +321,52 @@ void camera_thread_func(std::string yolo_model_path, std::string yolo_labels_pat
 		}
 
 		if (!persons.empty()) {
+			const auto &person = persons[0];
+			int pw = person.box.right - person.box.left + 1;
+			int ph = person.box.bottom - person.box.top + 1;
+			double cx_new = person.box.left + pw / 2.0;
+			double cy_new = person.box.top + ph / 2.0;
+			double w_new = pw;
+			double h_new = ph;
+
+			if (presenter_center.active) {
+				double dist = std::hypot(cx_new - presenter_center.cx, cy_new - presenter_center.cy);
+				double dw = std::abs(w_new - presenter_center.w);
+				double dh = std::abs(h_new - presenter_center.h);
+
+				if (dist > 12.0 || dw > 16.0 || dh > 16.0) {
+					presenter_center.moving = true;
+				}
+
+				if (presenter_center.moving) {
+					presenter_center.cx = 0.2 * cx_new + 0.8 * presenter_center.cx;
+					presenter_center.cy = 0.2 * cy_new + 0.8 * presenter_center.cy;
+					presenter_center.w  = 0.2 * w_new  + 0.8 * presenter_center.w;
+					presenter_center.h  = 0.2 * h_new  + 0.8 * presenter_center.h;
+
+					double current_dist = std::hypot(cx_new - presenter_center.cx, cy_new - presenter_center.cy);
+					double current_dw = std::abs(w_new - presenter_center.w);
+					double current_dh = std::abs(h_new - presenter_center.h);
+					if (current_dist < 2.0 && current_dw < 3.0 && current_dh < 3.0) {
+						presenter_center.cx = cx_new;
+						presenter_center.cy = cy_new;
+						presenter_center.w  = w_new;
+						presenter_center.h  = h_new;
+						presenter_center.moving = false;
+					}
+				}
+			} else {
+				presenter_center.cx = cx_new;
+				presenter_center.cy = cy_new;
+				presenter_center.w = w_new;
+				presenter_center.h = h_new;
+				presenter_center.active = true;
+				presenter_center.moving = false;
+			}
+
 			image_rect_t crop_box{};
 			int crop_w = 0, crop_h = 0;
-			get_aligned_crop_box(vw, vh, persons[0].box, &crop_box, &crop_w, &crop_h);
+			get_aligned_crop_box_centered(vw, vh, (int)presenter_center.cx, (int)presenter_center.cy, (int)presenter_center.w, (int)presenter_center.h, &crop_box, &crop_w, &crop_h);
 
 			new_frame->presenter_w = crop_w;
 			new_frame->presenter_h = crop_h;
@@ -287,6 +385,8 @@ void camera_thread_func(std::string yolo_model_path, std::string yolo_labels_pat
 			} else {
 				log_msg(LOG_ERROR, "camera_thread: crop presenter failed");
 			}
+		} else {
+			presenter_center.active = false;
 		}
 
 		{
