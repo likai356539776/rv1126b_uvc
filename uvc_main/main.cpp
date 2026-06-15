@@ -197,8 +197,15 @@ void camera_thread_func(std::string yolo_model_path, std::string yolo_labels_pat
 		}
 
 		if (frame_idx % 30 == 0) {
-			log_msg(LOG_INFO, "camera_thread: frame_idx=%lld, detected %d objects, %d persons",
-			        frame_idx, od_results.count, (int)persons.size());
+			long long non_zero_pixels = 0;
+			for (size_t i = 0; i < raw_rgb; i++) {
+				if (rgb_buf[i] != 0) {
+					non_zero_pixels++;
+				}
+			}
+			double non_zero_ratio = (double)non_zero_pixels / raw_rgb;
+			log_msg(LOG_INFO, "camera_thread: frame_idx=%lld, RGB non-zero ratio=%.2f%%, detected %d objects, %d persons",
+			        frame_idx, non_zero_ratio * 100.0, od_results.count, (int)persons.size());
 			for (int i = 0; i < od_results.count; i++) {
 				log_msg(LOG_INFO, "  obj[%d]: class=%d, name=%s, score=%.2f, box=[%d,%d,%d,%d]",
 				        i, od_results.results[i].cls_id,
