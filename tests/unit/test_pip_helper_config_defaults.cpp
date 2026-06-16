@@ -18,6 +18,7 @@ static constexpr int kDefPipW = 1280;
 static constexpr int kDefPipH = 360;
 static constexpr int kDefPipJpegQ = 85;
 static constexpr int kDefPipStaleMs = 5000;
+static constexpr float kDefPipStretchW = 1.3f;
 
 static int write_file(const fs::path &p, const char *text)
 {
@@ -43,6 +44,7 @@ static void fill_pip_helper_from_app(const AppConfig &app, pip_helper_config_t *
 	out->pip_tile_n_tiles = app.libmy_uvc_pip.pip_tile_n_tiles;
 	out->pip_tile_gap_px = app.libmy_uvc_pip.pip_tile_gap_px;
 	out->pip_tile_margin_px = app.libmy_uvc_pip.pip_tile_margin_px;
+	out->pip_width_stretch_factor = app.libmy_uvc_pip.pip_width_stretch_factor;
 }
 
 static int check_default_pip_fields(const AppConfig &cfg)
@@ -61,6 +63,8 @@ static int check_default_pip_fields(const AppConfig &cfg)
 	if (cfg.libmy_uvc_pip.pip_tile_n_tiles != 0 || cfg.libmy_uvc_pip.pip_tile_gap_px != 0 ||
 	    cfg.libmy_uvc_pip.pip_tile_margin_px != 0)
 		return 1;
+	if (cfg.libmy_uvc_pip.pip_width_stretch_factor != kDefPipStretchW)
+		return 1;
 	pip_helper_config_t p{};
 	fill_pip_helper_from_app(cfg, &p);
 	if (p.pip_enable != 0 || p.canvas_width != cfg.libmy_uvc.width || p.canvas_height != cfg.libmy_uvc.height)
@@ -72,6 +76,8 @@ static int check_default_pip_fields(const AppConfig &cfg)
 	if (p.pip_overlay_stale_timeout_ms != kDefPipStaleMs)
 		return 1;
 	if (p.pip_tile_n_tiles != 0 || p.pip_tile_gap_px != 0 || p.pip_tile_margin_px != 0)
+		return 1;
+	if (p.pip_width_stretch_factor != kDefPipStretchW)
 		return 1;
 	if (p.pip_overlay_path != nullptr && p.pip_overlay_path[0] != '\0')
 		return 1;

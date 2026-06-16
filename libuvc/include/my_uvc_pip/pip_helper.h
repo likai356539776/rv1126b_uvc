@@ -46,6 +46,7 @@ typedef struct pip_helper_config {
 	int pip_tile_n_tiles;
 	int pip_tile_gap_px;
 	int pip_tile_margin_px;
+	float pip_width_stretch_factor;
 } pip_helper_config_t;
 
 /**

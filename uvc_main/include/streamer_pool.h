@@ -45,6 +45,7 @@ struct StreamerChannelConfig {
 	int pip_tile_n_tiles = 0;
 	int pip_tile_gap_px = 10;
 	int pip_tile_margin_px = 10;
+	float pip_width_stretch_factor = 1.3f;
 };
 
 class StreamerPool {

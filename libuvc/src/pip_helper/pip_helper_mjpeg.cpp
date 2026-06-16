@@ -123,6 +123,7 @@ struct PipHelperImpl {
 	std::vector<std::vector<uint8_t>> tile_nv12_cache;
 	std::vector<int64_t> tile_last_update_ms;
 	std::vector<uint8_t> tile_has_valid;
+	float pip_width_stretch_factor = 1.0f;
 };
 
 static bool decode_jpeg_file_to_pip_nv12(PipHelperImpl *p, const char *jpeg_path,
@@ -225,6 +226,7 @@ extern "C" pip_helper_t *pip_helper_create(int channel_id, const pip_helper_conf
 		p->pip_x = px;
 		p->pip_y = py;
 	}
+	p->pip_width_stretch_factor = cfg->pip_width_stretch_factor > 0.0f ? cfg->pip_width_stretch_factor : 1.0f;
 	p->stale_timeout_cfg_ms = static_cast<int32_t>(cfg->pip_overlay_stale_timeout_ms);
 
 	const int nt = cfg->pip_tile_n_tiles;
@@ -448,8 +450,11 @@ extern "C" int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_
 		int ojw = 0, ojh = 0;
 		if (pip_mjpeg_decode_jpeg_rgb(bg_jpeg, bg_jpeg_len, &ov_dec, &ojw, &ojh)) {
 			double scale = std::min(static_cast<double>(p->pip_ow) / ojw, static_cast<double>(p->pip_oh) / ojh);
-			int cur_w = static_cast<int>(ojw * scale);
 			int cur_h = static_cast<int>(ojh * scale);
+			int cur_w = static_cast<int>(ojw * scale * p->pip_width_stretch_factor);
+			if (cur_w > p->pip_ow) {
+				cur_w = p->pip_ow;
+			}
 			cur_ow = (cur_w / 16) * 16;
 			cur_oh = (cur_h / 2) * 2;
 			if (cur_ow <= 0) cur_ow = 16;
@@ -484,8 +489,11 @@ extern "C" int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_
 			}
 			if (psw > 0 && psh > 0) {
 				double scale = std::min(static_cast<double>(p->pip_ow) / psw, static_cast<double>(p->pip_oh) / psh);
-				int cur_w = static_cast<int>(psw * scale);
 				int cur_h = static_cast<int>(psh * scale);
+				int cur_w = static_cast<int>(psw * scale * p->pip_width_stretch_factor);
+				if (cur_w > p->pip_ow) {
+					cur_w = p->pip_ow;
+				}
 				cur_ow = (cur_w / 16) * 16;
 				cur_oh = (cur_h / 2) * 2;
 				if (cur_ow <= 0) cur_ow = 16;
@@ -696,8 +704,11 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8
 
 	if (bg_nv12 && bg_w > 0 && bg_h > 0) {
 		double scale = std::min(static_cast<double>(p->pip_ow) / bg_w, static_cast<double>(p->pip_oh) / bg_h);
-		int cur_w = static_cast<int>(bg_w * scale);
 		int cur_h = static_cast<int>(bg_h * scale);
+		int cur_w = static_cast<int>(bg_w * scale * p->pip_width_stretch_factor);
+		if (cur_w > p->pip_ow) {
+			cur_w = p->pip_ow;
+		}
 		cur_ow = (cur_w / 16) * 16;
 		cur_oh = (cur_h / 2) * 2;
 		if (cur_ow <= 0) cur_ow = 16;
@@ -729,8 +740,11 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8
 			}
 			if (psw > 0 && psh > 0) {
 				double scale = std::min(static_cast<double>(p->pip_ow) / psw, static_cast<double>(p->pip_oh) / psh);
-				int cur_w = static_cast<int>(psw * scale);
 				int cur_h = static_cast<int>(psh * scale);
+				int cur_w = static_cast<int>(psw * scale * p->pip_width_stretch_factor);
+				if (cur_w > p->pip_ow) {
+					cur_w = p->pip_ow;
+				}
 				cur_ow = (cur_w / 16) * 16;
 				cur_oh = (cur_h / 2) * 2;
 				if (cur_ow <= 0) cur_ow = 16;
