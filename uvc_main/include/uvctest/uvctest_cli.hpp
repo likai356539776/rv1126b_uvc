@@ -43,10 +43,12 @@ struct CliState {
 	std::string yolo_model = "/userdata/yolov8n.rknn";
 	std::string yolo_labels = "/userdata/coco_80_labels_list.txt";
 	std::string camera_node = "/dev/video0";
+	std::string camera_type = "rockit";
 	float yolo_score_threshold = 0.60f;
 	bool cli_yolo_model = false;
 	bool cli_yolo_labels = false;
 	bool cli_camera_node = false;
+	bool cli_camera_type = false;
 	bool cli_yolo_score_threshold = false;
 };
 

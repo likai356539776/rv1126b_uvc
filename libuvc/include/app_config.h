@@ -63,6 +63,8 @@ struct UvctestIniFields {
 	std::array<int, kMaxUvcChannels> channel_fps;
 	std::array<std::string, kMaxUvcChannels> channel_h264_path;
 	float yolo_score_threshold;
+	std::string camera_type;
+	std::string camera_node;
 };
 
 /**

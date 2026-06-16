@@ -14,6 +14,7 @@ add_executable(uvc_main
 	vendor/yolov8/postprocess.cc
 	vendor/yolov8/rknpu2/yolov8.cc
 	src/camera_rockit_vi_vo.cc
+	src/camera_v4l2_reader.cc
 	src/app_log.cc
 	src/person_tracker.cc
 	src/camera_pipeline.cc

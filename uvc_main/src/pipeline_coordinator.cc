@@ -48,6 +48,11 @@ bool PipelineCoordinator::Initialize(const AppConfig& cfg, const uvctest::CliSta
 	cam_cfg.yolo_labels = cli_.yolo_labels;
 	cam_cfg.max_tiles = cfg_.libmy_uvc_pip.pip_tile_n_tiles;
 	cam_cfg.yolo_score_threshold = cfg_.uvctest.yolo_score_threshold;
+	cam_cfg.camera_type = cfg_.uvctest.camera_type;
+	cam_cfg.camera_node = cfg_.uvctest.camera_node;
+	cam_cfg.width = cfg_.libmy_uvc.width;
+	cam_cfg.height = cfg_.libmy_uvc.height;
+	cam_cfg.fps = cfg_.libmy_uvc.fps;
 	if (!camera_pipeline_.Initialize(cam_cfg)) {
 		APP_LOGE("PipelineCoordinator: camera_pipeline_.Initialize failed\n");
 		my_uvc_destroy(uvc_ctx_);

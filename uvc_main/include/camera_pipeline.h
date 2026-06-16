@@ -5,7 +5,7 @@
 #include <mutex>
 #include <atomic>
 #include <memory>
-#include "camera_rockit_vi_vo.h"
+#include "camera_reader.h"
 #include "yolo_person_detector.h"
 #include "person_tracker.h"
 
@@ -16,6 +16,11 @@ struct CameraPipelineConfig {
 	std::string yolo_labels;
 	int max_tiles = 0;
 	float yolo_score_threshold = 0.60f;
+	std::string camera_type = "rockit";
+	std::string camera_node = "/dev/video0";
+	int width = 1920;
+	int height = 1080;
+	int fps = 25;
 };
 
 
@@ -39,7 +44,7 @@ private:
 
 	CameraPipelineConfig cfg_;
 	YoloPersonDetector yolo_;
-	CameraRockitRgbReader rock_reader_;
+	std::unique_ptr<CameraReader> camera_reader_;
 	PersonTracker tracker_;
 
 	std::thread camera_thread_;

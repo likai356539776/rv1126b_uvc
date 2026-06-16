@@ -286,6 +286,16 @@ bool apply_config_kv(const std::string &section, const std::string &key, const s
 			v /= 100.0f;
 		}
 		cfg->uvctest.yolo_score_threshold = v;
+	} else if (key == "camera_type") {
+		if (!allow_test)
+			return reject_key("camera_type");
+		matched = true;
+		cfg->uvctest.camera_type = trim(val);
+	} else if (key == "camera_node") {
+		if (!allow_test)
+			return reject_key("camera_node");
+		matched = true;
+		cfg->uvctest.camera_node = trim(val);
 	} else if (key == "video_codec" || key == "codec") {
 
 		if (!allow_core)
@@ -604,6 +614,8 @@ AppConfig default_app_config() {
 	cfg.libmy_uvc.video_codec = "h264";
 	cfg.uvctest.h264_path = "/userdata/200frames_count.h264";
 	cfg.uvctest.yolo_score_threshold = 0.60f;
+	cfg.uvctest.camera_type = "rockit";
+	cfg.uvctest.camera_node = "/dev/video0";
 	cfg.uvctest.pip_tile_test_nv12_src_w = 0;
 
 	cfg.uvctest.pip_tile_test_nv12_src_h = 0;

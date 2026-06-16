@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "image_utils.h"
+#include "camera_reader.h"
 
 namespace my_app {
 
@@ -43,28 +44,29 @@ struct RockitCameraConfig {
   bool camera_mirror = false;
 };
 
-class CameraRockitRgbReader {
+class CameraRockitRgbReader : public CameraReader {
  public:
   CameraRockitRgbReader();
-  ~CameraRockitRgbReader();
+  ~CameraRockitRgbReader() override;
 
   CameraRockitRgbReader(const CameraRockitRgbReader&) = delete;
   CameraRockitRgbReader& operator=(const CameraRockitRgbReader&) = delete;
 
+  int Open(int width, int height, const std::string& node, int fps) override;
   int Open(const RockitCameraConfig& cfg);
-  void Close();
+  void Close() override;
   void ShutdownSubsystem();
 
-  int ReadNextRgbInto(image_buffer_t* out, int timeout_ms);
+  int ReadNextRgbInto(image_buffer_t* out, int timeout_ms) override;
 
-  int width() const { return width_; }
-  int height() const { return height_; }
-  int fps() const { return fps_; }
-  long long frame_index() const { return frame_index_; }
+  int width() const override { return width_; }
+  int height() const override { return height_; }
+  int fps() const override { return fps_; }
+  long long frame_index() const override { return frame_index_; }
   int vo_disp_width() const { return vo_disp_w_; }
   int vo_disp_height() const { return vo_disp_h_; }
   const RockitCameraConfig& config() const { return cfg_; }
-  const uint8_t* GetLastNv12Data() const { return nv12_tight_.data(); }
+  const uint8_t* GetLastNv12Data() const override { return nv12_tight_.data(); }
 
  private:
   int ViDevInit();

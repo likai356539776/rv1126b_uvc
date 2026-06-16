@@ -3,6 +3,8 @@
 #include <chrono>
 #include "app_log.h"
 #include "postprocess.h"
+#include "camera_rockit_vi_vo.h"
+#include "camera_v4l2_reader.h"
 
 namespace my_app {
 
@@ -10,8 +12,9 @@ CameraPipeline::CameraPipeline() : latest_frame_(nullptr) {}
 
 CameraPipeline::~CameraPipeline() {
 	Stop();
-	rock_reader_.Close();
-	rock_reader_.ShutdownSubsystem();
+	if (camera_reader_) {
+		camera_reader_->Close();
+	}
 	yolo_.Shutdown();
 }
 
@@ -24,35 +27,21 @@ bool CameraPipeline::Initialize(const CameraPipelineConfig& cfg) {
 		return false;
 	}
 
-	my_app::RockitCameraConfig rcfg;
-	rcfg.vi_pipe_id = 0;
-	rcfg.vi_dev_id = 0;
-	rcfg.vi_chn_id = 0;
-	rcfg.width = 1920;
-	rcfg.height = 1080;
-	rcfg.vo_enable = true;
-	rcfg.vo_layer = 0;
-	rcfg.vo_dev = 0;
-	rcfg.vo_chn = 0;
-#if defined(RV1126B)
-	rcfg.vo_intf_type = 1;
-#else
-	rcfg.vo_intf_type = 0;
-#endif
-	rcfg.vo_disp_width = 1080;
-	rcfg.vo_disp_height = 1920;
-	rcfg.vo_layer_no_compress = false;
-	rcfg.vo_rotation_deg = 0;
-	rcfg.camera_mirror = false;
+	if (cfg_.camera_type == "v4l2") {
+		camera_reader_ = std::make_unique<CameraV4l2RgbReader>();
+	} else {
+		camera_reader_ = std::make_unique<CameraRockitRgbReader>();
+	}
 
-	if (rock_reader_.Open(rcfg) != 0) {
-		APP_LOGE("camera_pipeline: CameraRockitRgbReader Open failed\n");
+	if (camera_reader_->Open(cfg_.width, cfg_.height, cfg_.camera_node, cfg_.fps) != 0) {
+		APP_LOGE("camera_pipeline: CameraReader Open failed (type: %s, node: %s)\n",
+		         cfg_.camera_type.c_str(), cfg_.camera_node.c_str());
 		yolo_.Shutdown();
 		return false;
 	}
 
 	APP_LOGI("camera_pipeline: Camera initialized successfully. Resolution: %dx%d\n",
-	         rock_reader_.width(), rock_reader_.height());
+	         camera_reader_->width(), camera_reader_->height());
 	return true;
 }
 
@@ -85,8 +74,8 @@ int64_t CameraPipeline::GetSteadyMs() const {
 }
 
 void CameraPipeline::RunLoop(const std::atomic<bool>& shutdown_flag) {
-	int vw = rock_reader_.width();
-	int vh = rock_reader_.height();
+	int vw = camera_reader_->width();
+	int vh = camera_reader_->height();
 	size_t raw_rgb = (size_t)vw * (size_t)vh * 3u;
 	std::vector<uint8_t> rgb_buf(raw_rgb);
 
@@ -100,15 +89,15 @@ void CameraPipeline::RunLoop(const std::atomic<bool>& shutdown_flag) {
 	long long frame_idx = 0;
 
 	while (is_running_.load() && !shutdown_flag.load()) {
-		int read_r = rock_reader_.ReadNextRgbInto(&camera_rgb_img, 1000);
+		int read_r = camera_reader_->ReadNextRgbInto(&camera_rgb_img, 1000);
 		if (read_r != 0) {
 			APP_LOGE("camera_pipeline: ReadNextRgbInto failed, ret=%d\n", read_r);
 			std::this_thread::sleep_for(std::chrono::milliseconds(30));
 			continue;
 		}
 
-		frame_idx = rock_reader_.frame_index();
-		const uint8_t* nv12_data = rock_reader_.GetLastNv12Data();
+		frame_idx = camera_reader_->frame_index();
+		const uint8_t* nv12_data = camera_reader_->GetLastNv12Data();
 		if (!nv12_data) {
 			APP_LOGE("camera_pipeline: GetLastNv12Data returned null\n");
 			continue;
