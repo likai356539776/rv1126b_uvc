@@ -124,7 +124,37 @@ struct PipHelperImpl {
 	std::vector<int64_t> tile_last_update_ms;
 	std::vector<uint8_t> tile_has_valid;
 	float pip_width_stretch_factor = 1.0f;
+	bool border_enable = false;
+	int border_radius = 16;
+	int border_thickness = 2;
+	uint8_t border_y = 235;
+	uint8_t border_u = 128;
+	uint8_t border_v = 128;
 };
+
+static bool parse_hex_color_to_yuv(const char *hex, uint8_t *y, uint8_t *u, uint8_t *v) {
+	if (!hex) return false;
+	std::string s = hex;
+	if (!s.empty() && s[0] == '#') {
+		s = s.substr(1);
+	}
+	if (s.size() != 6) {
+		return false;
+	}
+	unsigned int r = 0, g = 0, b = 0;
+	if (std::sscanf(s.c_str(), "%2x%2x%2x", &r, &g, &b) != 3) {
+		return false;
+	}
+	// BT.601 limited range conversion
+	double yd = 16.0 + 0.257 * r + 0.504 * g + 0.098 * b;
+	double ud = 128.0 - 0.148 * r - 0.291 * g + 0.439 * b;
+	double vd = 128.0 + 0.439 * r - 0.368 * g - 0.071 * b;
+
+	*y = static_cast<uint8_t>(yd < 0.0 ? 0 : (yd > 255.0 ? 255 : yd));
+	*u = static_cast<uint8_t>(ud < 0.0 ? 0 : (ud > 255.0 ? 255 : ud));
+	*v = static_cast<uint8_t>(vd < 0.0 ? 0 : (vd > 255.0 ? 255 : vd));
+	return true;
+}
 
 static bool decode_jpeg_file_to_pip_nv12(PipHelperImpl *p, const char *jpeg_path,
                                          std::vector<uint8_t> *nv12_out)
@@ -227,6 +257,15 @@ extern "C" pip_helper_t *pip_helper_create(int channel_id, const pip_helper_conf
 		p->pip_y = py;
 	}
 	p->pip_width_stretch_factor = cfg->pip_width_stretch_factor > 0.0f ? cfg->pip_width_stretch_factor : 1.0f;
+	p->border_enable = cfg->pip_border_enable != 0;
+	p->border_radius = cfg->pip_border_radius >= 0 ? cfg->pip_border_radius : 16;
+	p->border_thickness = cfg->pip_border_thickness >= 0 ? cfg->pip_border_thickness : 2;
+	p->border_y = 235;
+	p->border_u = 128;
+	p->border_v = 128;
+	if (cfg->pip_border_color && cfg->pip_border_color[0] != '\0') {
+		parse_hex_color_to_yuv(cfg->pip_border_color, &p->border_y, &p->border_u, &p->border_v);
+	}
 	p->stale_timeout_cfg_ms = static_cast<int32_t>(cfg->pip_overlay_stale_timeout_ms);
 
 	const int nt = cfg->pip_tile_n_tiles;
@@ -603,9 +642,17 @@ extern "C" int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_
 		}
 	}
 
+	PipBorderConfig bc{};
+	bc.enable = p->border_enable;
+	bc.radius = p->border_radius;
+	bc.thickness = p->border_thickness;
+	bc.y = p->border_y;
+	bc.u = p->border_u;
+	bc.v = p->border_v;
+
 	p->jpeg_out.clear();
 	if (!pip_hw_composite_layers(p->hw, bg_jpeg, bg_jpeg_len, blits.data(), static_cast<int>(blits.size()),
-	                             &p->jpeg_out)) {
+	                             &bc, &p->jpeg_out)) {
 		set_err("pip_hw_composite_layers failed");
 		return -1;
 	}
@@ -854,9 +901,17 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8
 		}
 	}
 
+	PipBorderConfig bc{};
+	bc.enable = p->border_enable;
+	bc.radius = p->border_radius;
+	bc.thickness = p->border_thickness;
+	bc.y = p->border_y;
+	bc.u = p->border_u;
+	bc.v = p->border_v;
+
 	p->jpeg_out.clear();
 	if (!pip_hw_composite_layers_nv12(p->hw, bg_nv12, bg_w, bg_h, blits.data(), static_cast<int>(blits.size()),
-	                                  &p->jpeg_out)) {
+	                                  &bc, &p->jpeg_out)) {
 		set_err("pip_hw_composite_layers_nv12 failed");
 		return -1;
 	}

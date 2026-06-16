@@ -45,6 +45,10 @@ struct LibmyUvcPipIniFields {
 	int pip_tile_gap_px;
 	int pip_tile_margin_px;
 	float pip_width_stretch_factor;
+	bool pip_border_enable;
+	int pip_border_radius;
+	int pip_border_thickness;
+	std::string pip_border_color;
 };
 
 /**

@@ -10,6 +10,15 @@ struct PipHwContext;
 bool pip_hw_init(PipHwContext **ctx, int canvas_w, int canvas_h, int quality);
 void pip_hw_deinit(PipHwContext *ctx);
 
+struct PipBorderConfig {
+	bool enable;
+	int radius;
+	int thickness;
+	uint8_t y;
+	uint8_t u;
+	uint8_t v;
+};
+
 /**
  * One NV12 layer: 先可选 RGA 缩放到 dst_w×dst_h，再 blit 到画布 (ox,oy)。
  * src_w/src_h 均 >0 且与 dst 不同时做缩放；否则认为源已为 dst_w×dst_h。
@@ -28,11 +37,13 @@ bool pip_hw_nv12_resize_virtual(const uint8_t *src_nv12, int src_w, int src_h, u
 bool pip_hw_composite_layers(PipHwContext *ctx,
                              const uint8_t *jpeg_data, size_t jpeg_len,
                              const PipHwNv12Blit *blits, int n_blits,
+                             const PipBorderConfig *bc,
                              std::vector<uint8_t> *out_jpeg);
 
 bool pip_hw_composite_layers_nv12(PipHwContext *ctx,
                                   const uint8_t *bg_nv12, int bg_w, int bg_h,
                                   const PipHwNv12Blit *blits, int n_blits,
+                                  const PipBorderConfig *bc,
                                   std::vector<uint8_t> *out_jpeg);
 
 bool pip_hw_composite(PipHwContext *ctx,

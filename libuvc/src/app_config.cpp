@@ -442,6 +442,44 @@ bool apply_config_kv(const std::string &section, const std::string &key, const s
 			return false;
 		}
 		cfg->libmy_uvc_pip.pip_width_stretch_factor = v;
+	} else if (key == "pip_border_enable") {
+		if (!allow_pip)
+			return reject_key("pip_border_enable");
+		matched = true;
+		bool v = false;
+		if (!to_bool(val, &v)) {
+			if (err)
+				*err = "invalid pip_border_enable at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->libmy_uvc_pip.pip_border_enable = v;
+	} else if (key == "pip_border_radius") {
+		if (!allow_pip)
+			return reject_key("pip_border_radius");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 0) {
+			if (err)
+				*err = "invalid pip_border_radius at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->libmy_uvc_pip.pip_border_radius = v;
+	} else if (key == "pip_border_thickness") {
+		if (!allow_pip)
+			return reject_key("pip_border_thickness");
+		matched = true;
+		int v = 0;
+		if (!to_int(val, &v) || v < 0) {
+			if (err)
+				*err = "invalid pip_border_thickness at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->libmy_uvc_pip.pip_border_thickness = v;
+	} else if (key == "pip_border_color") {
+		if (!allow_pip)
+			return reject_key("pip_border_color");
+		matched = true;
+		cfg->libmy_uvc_pip.pip_border_color = val;
 	} else if (key == "h264_path") {
 		if (!allow_test)
 			return reject_key("h264_path");
@@ -642,6 +680,10 @@ AppConfig default_app_config() {
 	cfg.libmy_uvc_pip.pip_tile_gap_px = 0;
 	cfg.libmy_uvc_pip.pip_tile_margin_px = 0;
 	cfg.libmy_uvc_pip.pip_width_stretch_factor = 1.3f;
+	cfg.libmy_uvc_pip.pip_border_enable = false;
+	cfg.libmy_uvc_pip.pip_border_radius = 16;
+	cfg.libmy_uvc_pip.pip_border_thickness = 2;
+	cfg.libmy_uvc_pip.pip_border_color = "#FFFFFF";
 	for (int i = 0; i < kMaxUvcChannels; i++) {
 		cfg.uvctest.channel_fps[i] = cfg.libmy_uvc.fps;
 		cfg.uvctest.channel_h264_path[i] = cfg.uvctest.h264_path;

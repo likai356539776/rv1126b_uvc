@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
+#include <algorithm>
 
 extern "C" {
 #include <rockchip/rk_mpi.h>
@@ -532,9 +533,152 @@ static bool encode_nv12_to_jpeg(PipHwContext *c, std::vector<uint8_t> *out_jpeg)
 	return true;
 }
 
+static void draw_rounded_border(uint8_t *canvas, int cw_stride, int ch, int ox, int oy, int dw, int dh, const PipBorderConfig &bc) {
+	if (!bc.enable || bc.radius <= 0) return;
+	ox = ALIGN2(ox);
+	oy = ALIGN2(oy);
+	int w = ALIGN2(dw);
+	int h = ALIGN2(dh);
+	int r = bc.radius;
+	int t = bc.thickness;
+	uint8_t by = bc.y;
+	uint8_t bu = bc.u;
+	uint8_t bv = bc.v;
+
+	// Canvas dimensions
+	int canvas_y_plane = cw_stride * ALIGN16(ch);
+	uint8_t *canvas_y = canvas;
+	uint8_t *canvas_uv = canvas + canvas_y_plane;
+
+	auto draw_pixel = [&](int px, int py, uint8_t y_val, uint8_t u_val, uint8_t v_val) {
+		if (px < 0 || px >= cw_stride || py < 0 || py >= ch) return;
+		canvas_y[py * cw_stride + px] = y_val;
+		int uv_x = (px / 2) * 2;
+		int uv_y = py / 2;
+		canvas_uv[uv_y * cw_stride + uv_x] = u_val;
+		canvas_uv[uv_y * cw_stride + uv_x + 1] = v_val;
+	};
+
+	// 1. Mask out the 4 outer corners to background black (Y=16, U=128, V=128)
+	// Top-Left corner: center at (ox + r, oy + r)
+	for (int y = 0; y < r; y++) {
+		for (int x = 0; x < r; x++) {
+			int dx = r - x;
+			int dy = r - y;
+			if (dx * dx + dy * dy > r * r) {
+				draw_pixel(ox + x, oy + y, 16, 128, 128);
+			}
+		}
+	}
+	// Top-Right corner: center at (ox + w - r, oy + r)
+	for (int y = 0; y < r; y++) {
+		for (int x = 0; x < r; x++) {
+			int dx = x + 1;
+			int dy = r - y;
+			if (dx * dx + dy * dy > r * r) {
+				draw_pixel(ox + w - r + x, oy + y, 16, 128, 128);
+			}
+		}
+	}
+	// Bottom-Left corner: center at (ox + r, oy + h - r)
+	for (int y = 0; y < r; y++) {
+		for (int x = 0; x < r; x++) {
+			int dx = r - x;
+			int dy = y + 1;
+			if (dx * dx + dy * dy > r * r) {
+				draw_pixel(ox + x, oy + h - r + y, 16, 128, 128);
+			}
+		}
+	}
+	// Bottom-Right corner: center at (ox + w - r, oy + h - r)
+	for (int y = 0; y < r; y++) {
+		for (int x = 0; x < r; x++) {
+			int dx = x + 1;
+			int dy = y + 1;
+			if (dx * dx + dy * dy > r * r) {
+				draw_pixel(ox + w - r + x, oy + h - r + y, 16, 128, 128);
+			}
+		}
+	}
+
+	// 2. Draw border outline if thickness > 0
+	if (t > 0) {
+		// Top-Left corner border: (r-t)^2 < dx^2 + dy^2 <= r^2
+		for (int y = 0; y < r; y++) {
+			for (int x = 0; x < r; x++) {
+				int dx = r - x;
+				int dy = r - y;
+				int d2 = dx * dx + dy * dy;
+				if (d2 <= r * r && d2 > (r - t) * (r - t)) {
+					draw_pixel(ox + x, oy + y, by, bu, bv);
+				}
+			}
+		}
+		// Top-Right corner border:
+		for (int y = 0; y < r; y++) {
+			for (int x = 0; x < r; x++) {
+				int dx = x + 1;
+				int dy = r - y;
+				int d2 = dx * dx + dy * dy;
+				if (d2 <= r * r && d2 > (r - t) * (r - t)) {
+					draw_pixel(ox + w - r + x, oy + y, by, bu, bv);
+				}
+			}
+		}
+		// Bottom-Left corner border:
+		for (int y = 0; y < r; y++) {
+			for (int x = 0; x < r; x++) {
+				int dx = r - x;
+				int dy = y + 1;
+				int d2 = dx * dx + dy * dy;
+				if (d2 <= r * r && d2 > (r - t) * (r - t)) {
+					draw_pixel(ox + x, oy + h - r + y, by, bu, bv);
+				}
+			}
+		}
+		// Bottom-Right corner border:
+		for (int y = 0; y < r; y++) {
+			for (int x = 0; x < r; x++) {
+				int dx = x + 1;
+				int dy = y + 1;
+				int d2 = dx * dx + dy * dy;
+				if (d2 <= r * r && d2 > (r - t) * (r - t)) {
+					draw_pixel(ox + w - r + x, oy + h - r + y, by, bu, bv);
+				}
+			}
+		}
+
+		// Top straight border
+		for (int x = r; x < w - r; x++) {
+			for (int y = 0; y < t; y++) {
+				draw_pixel(ox + x, oy + y, by, bu, bv);
+			}
+		}
+		// Bottom straight border
+		for (int x = r; x < w - r; x++) {
+			for (int y = h - t; y < h; y++) {
+				draw_pixel(ox + x, oy + y, by, bu, bv);
+			}
+		}
+		// Left straight border
+		for (int y = r; y < h - r; y++) {
+			for (int x = 0; x < t; x++) {
+				draw_pixel(ox + x, oy + y, by, bu, bv);
+			}
+		}
+		// Right straight border
+		for (int y = r; y < h - r; y++) {
+			for (int x = w - t; x < w; x++) {
+				draw_pixel(ox + x, oy + y, by, bu, bv);
+			}
+		}
+	}
+}
+
 bool pip_hw_composite_layers(PipHwContext *c,
                              const uint8_t *jpeg_data, size_t jpeg_len,
                              const PipHwNv12Blit *blits, int n_blits,
+                             const PipBorderConfig *bc,
                              std::vector<uint8_t> *out_jpeg)
 {
 	if (!c || !jpeg_data || jpeg_len == 0 || !out_jpeg)
@@ -581,6 +725,14 @@ bool pip_hw_composite_layers(PipHwContext *c,
 		}
 		blit_nv12(canvas_ptr, c->hor_stride, c->ver_stride, blit_src, dw, dh, b.ox, b.oy);
 	}
+	if (bc && bc->enable) {
+		for (int i = 0; i < n_blits; i++) {
+			const PipHwNv12Blit &b = blits[i];
+			if (!b.nv12 || b.dst_w <= 0 || b.dst_h <= 0)
+				continue;
+			draw_rounded_border(canvas_ptr, c->hor_stride, c->ver_stride, b.ox, b.oy, b.dst_w, b.dst_h, *bc);
+		}
+	}
 	mpp_buffer_sync_end(c->canvas_buf);
 
 	/* Step 3: MPP encode canvas NV12 → JPEG */
@@ -590,6 +742,7 @@ bool pip_hw_composite_layers(PipHwContext *c,
 bool pip_hw_composite_layers_nv12(PipHwContext *c,
                                   const uint8_t *bg_nv12, int bg_w, int bg_h,
                                   const PipHwNv12Blit *blits, int n_blits,
+                                  const PipBorderConfig *bc,
                                   std::vector<uint8_t> *out_jpeg)
 {
 	if (!c || !bg_nv12 || bg_w <= 0 || bg_h <= 0 || !out_jpeg)
@@ -630,6 +783,14 @@ bool pip_hw_composite_layers_nv12(PipHwContext *c,
 		}
 		blit_nv12(canvas_ptr, c->hor_stride, c->ver_stride, blit_src, dw, dh, b.ox, b.oy);
 	}
+	if (bc && bc->enable) {
+		for (int i = 0; i < n_blits; i++) {
+			const PipHwNv12Blit &b = blits[i];
+			if (!b.nv12 || b.dst_w <= 0 || b.dst_h <= 0)
+				continue;
+			draw_rounded_border(canvas_ptr, c->hor_stride, c->ver_stride, b.ox, b.oy, b.dst_w, b.dst_h, *bc);
+		}
+	}
 	mpp_buffer_sync_end(c->canvas_buf);
 
 	/* Step 2: MPP encode canvas NV12 → JPEG */
@@ -648,7 +809,7 @@ bool pip_hw_composite(PipHwContext *c,
 		b[0] = {overlay_nv12, ow, oh, ox, oy, 0, 0};
 		n = 1;
 	}
-	return pip_hw_composite_layers(c, jpeg_data, jpeg_len, b, n, out_jpeg);
+	return pip_hw_composite_layers(c, jpeg_data, jpeg_len, b, n, nullptr, out_jpeg);
 }
 
 bool pip_hw_rgb_to_nv12(const uint8_t *rgb, int w, int h,

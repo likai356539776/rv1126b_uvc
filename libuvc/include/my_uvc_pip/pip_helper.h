@@ -47,6 +47,10 @@ typedef struct pip_helper_config {
 	int pip_tile_gap_px;
 	int pip_tile_margin_px;
 	float pip_width_stretch_factor;
+	int pip_border_enable;
+	int pip_border_radius;
+	int pip_border_thickness;
+	const char *pip_border_color;
 } pip_helper_config_t;
 
 /**

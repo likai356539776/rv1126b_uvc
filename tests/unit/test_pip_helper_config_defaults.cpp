@@ -19,6 +19,10 @@ static constexpr int kDefPipH = 360;
 static constexpr int kDefPipJpegQ = 85;
 static constexpr int kDefPipStaleMs = 5000;
 static constexpr float kDefPipStretchW = 1.3f;
+static constexpr bool kDefPipBorderEnable = false;
+static constexpr int kDefPipBorderRadius = 16;
+static constexpr int kDefPipBorderThickness = 2;
+static const char* kDefPipBorderColor = "#FFFFFF";
 
 static int write_file(const fs::path &p, const char *text)
 {
@@ -45,6 +49,10 @@ static void fill_pip_helper_from_app(const AppConfig &app, pip_helper_config_t *
 	out->pip_tile_gap_px = app.libmy_uvc_pip.pip_tile_gap_px;
 	out->pip_tile_margin_px = app.libmy_uvc_pip.pip_tile_margin_px;
 	out->pip_width_stretch_factor = app.libmy_uvc_pip.pip_width_stretch_factor;
+	out->pip_border_enable = app.libmy_uvc_pip.pip_border_enable ? 1 : 0;
+	out->pip_border_radius = app.libmy_uvc_pip.pip_border_radius;
+	out->pip_border_thickness = app.libmy_uvc_pip.pip_border_thickness;
+	out->pip_border_color = app.libmy_uvc_pip.pip_border_color.c_str();
 }
 
 static int check_default_pip_fields(const AppConfig &cfg)
@@ -65,6 +73,14 @@ static int check_default_pip_fields(const AppConfig &cfg)
 		return 1;
 	if (cfg.libmy_uvc_pip.pip_width_stretch_factor != kDefPipStretchW)
 		return 1;
+	if (cfg.libmy_uvc_pip.pip_border_enable != kDefPipBorderEnable)
+		return 1;
+	if (cfg.libmy_uvc_pip.pip_border_radius != kDefPipBorderRadius)
+		return 1;
+	if (cfg.libmy_uvc_pip.pip_border_thickness != kDefPipBorderThickness)
+		return 1;
+	if (cfg.libmy_uvc_pip.pip_border_color != kDefPipBorderColor)
+		return 1;
 	pip_helper_config_t p{};
 	fill_pip_helper_from_app(cfg, &p);
 	if (p.pip_enable != 0 || p.canvas_width != cfg.libmy_uvc.width || p.canvas_height != cfg.libmy_uvc.height)
@@ -78,6 +94,14 @@ static int check_default_pip_fields(const AppConfig &cfg)
 	if (p.pip_tile_n_tiles != 0 || p.pip_tile_gap_px != 0 || p.pip_tile_margin_px != 0)
 		return 1;
 	if (p.pip_width_stretch_factor != kDefPipStretchW)
+		return 1;
+	if (p.pip_border_enable != (kDefPipBorderEnable ? 1 : 0))
+		return 1;
+	if (p.pip_border_radius != kDefPipBorderRadius)
+		return 1;
+	if (p.pip_border_thickness != kDefPipBorderThickness)
+		return 1;
+	if (std::string(p.pip_border_color) != kDefPipBorderColor)
 		return 1;
 	if (p.pip_overlay_path != nullptr && p.pip_overlay_path[0] != '\0')
 		return 1;

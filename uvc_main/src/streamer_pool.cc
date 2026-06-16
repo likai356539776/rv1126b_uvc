@@ -77,6 +77,10 @@ void StreamerPool::ChannelWorker(size_t index, my_uvc_t* uvc_ctx, const CameraPi
 		pcfg.pip_tile_gap_px = ch.pip_tile_gap_px;
 		pcfg.pip_tile_margin_px = ch.pip_tile_margin_px;
 		pcfg.pip_width_stretch_factor = ch.pip_width_stretch_factor;
+		pcfg.pip_border_enable = ch.pip_border_enable ? 1 : 0;
+		pcfg.pip_border_radius = ch.pip_border_radius;
+		pcfg.pip_border_thickness = ch.pip_border_thickness;
+		pcfg.pip_border_color = ch.pip_border_color.c_str();
 
 		pip = pip_helper_create(ch.channel_id, &pcfg);
 		if (!pip) {
