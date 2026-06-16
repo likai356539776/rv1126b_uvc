@@ -724,12 +724,7 @@ bool pip_hw_composite_layers(PipHwContext *c,
 			blit_src = scale_scratch.data();
 		}
 		blit_nv12(canvas_ptr, c->hor_stride, c->ver_stride, blit_src, dw, dh, b.ox, b.oy);
-	}
-	if (bc && bc->enable) {
-		for (int i = 0; i < n_blits; i++) {
-			const PipHwNv12Blit &b = blits[i];
-			if (!b.nv12 || b.dst_w <= 0 || b.dst_h <= 0)
-				continue;
+		if (bc && bc->enable) {
 			draw_rounded_border(canvas_ptr, c->hor_stride, c->ver_stride, b.ox, b.oy, b.dst_w, b.dst_h, *bc);
 		}
 	}
@@ -782,12 +777,7 @@ bool pip_hw_composite_layers_nv12(PipHwContext *c,
 			blit_src = scale_scratch.data();
 		}
 		blit_nv12(canvas_ptr, c->hor_stride, c->ver_stride, blit_src, dw, dh, b.ox, b.oy);
-	}
-	if (bc && bc->enable) {
-		for (int i = 0; i < n_blits; i++) {
-			const PipHwNv12Blit &b = blits[i];
-			if (!b.nv12 || b.dst_w <= 0 || b.dst_h <= 0)
-				continue;
+		if (bc && bc->enable) {
 			draw_rounded_border(canvas_ptr, c->hor_stride, c->ver_stride, b.ox, b.oy, b.dst_w, b.dst_h, *bc);
 		}
 	}
