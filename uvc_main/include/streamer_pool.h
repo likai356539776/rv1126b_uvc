@@ -43,8 +43,8 @@ struct StreamerChannelConfig {
 	int pip_jpeg_quality = 85;
 	int pip_overlay_stale_timeout_ms = 5000;
 	int pip_tile_n_tiles = 0;
-	int pip_tile_gap_px = 10;
-	int pip_tile_margin_px = 10;
+	int pip_tile_gap_px = 0;
+	int pip_tile_margin_px = 0;
 	float pip_width_stretch_factor = 1.3f;
 	bool pip_border_enable = true;
 	int pip_border_radius = 4;
