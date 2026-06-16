@@ -53,6 +53,20 @@ bool to_bool(const std::string &s, bool *out) {
 	return false;
 }
 
+bool to_float(const std::string &s, float *out) {
+	try {
+		size_t idx = 0;
+		float v = std::stof(s, &idx);
+		if (idx != s.size())
+			return false;
+		*out = v;
+		return true;
+	} catch (...) {
+		return false;
+	}
+}
+
+
 bool section_is_known(const std::string &sec) {
 	return sec == "my_uvc" || sec == "uvc" || sec == "libmy_uvc" || sec == "libmy_uvc_pip" ||
 	       sec == "uvctest";
@@ -258,7 +272,22 @@ bool apply_config_kv(const std::string &section, const std::string &key, const s
 			return false;
 		}
 		cfg->uvctest.stats_interval_sec = v;
+	} else if (key == "yolo_score_threshold") {
+		if (!allow_test)
+			return reject_key("yolo_score_threshold");
+		matched = true;
+		float v = 0.0f;
+		if (!to_float(val, &v) || v < 0.0f || v > 100.0f) {
+			if (err)
+				*err = "invalid yolo_score_threshold at line " + std::to_string(lineno) + " (must be [0.0, 100.0])";
+			return false;
+		}
+		if (v > 1.0f) {
+			v /= 100.0f;
+		}
+		cfg->uvctest.yolo_score_threshold = v;
 	} else if (key == "video_codec" || key == "codec") {
+
 		if (!allow_core)
 			return reject_key("video_codec");
 		matched = true;
@@ -574,7 +603,9 @@ AppConfig default_app_config() {
 	cfg.uvctest.stats_interval_sec = 5;
 	cfg.libmy_uvc.video_codec = "h264";
 	cfg.uvctest.h264_path = "/userdata/200frames_count.h264";
+	cfg.uvctest.yolo_score_threshold = 0.60f;
 	cfg.uvctest.pip_tile_test_nv12_src_w = 0;
+
 	cfg.uvctest.pip_tile_test_nv12_src_h = 0;
 	cfg.libmy_uvc_pip.pip_enable = false;
 	cfg.libmy_uvc_pip.pip_overlay_path.clear();

@@ -15,7 +15,9 @@ struct CameraPipelineConfig {
 	std::string yolo_model;
 	std::string yolo_labels;
 	int max_tiles = 0;
+	float yolo_score_threshold = 0.60f;
 };
+
 
 class CameraPipeline {
 public:

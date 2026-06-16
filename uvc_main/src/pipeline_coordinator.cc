@@ -47,6 +47,7 @@ bool PipelineCoordinator::Initialize(const AppConfig& cfg, const uvctest::CliSta
 	cam_cfg.yolo_model = cli_.yolo_model;
 	cam_cfg.yolo_labels = cli_.yolo_labels;
 	cam_cfg.max_tiles = cfg_.libmy_uvc_pip.pip_tile_n_tiles;
+	cam_cfg.yolo_score_threshold = cfg_.uvctest.yolo_score_threshold;
 	if (!camera_pipeline_.Initialize(cam_cfg)) {
 		APP_LOGE("PipelineCoordinator: camera_pipeline_.Initialize failed\n");
 		my_uvc_destroy(uvc_ctx_);

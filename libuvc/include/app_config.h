@@ -62,6 +62,7 @@ struct UvctestIniFields {
 	int pip_tile_test_nv12_src_h;
 	std::array<int, kMaxUvcChannels> channel_fps;
 	std::array<std::string, kMaxUvcChannels> channel_h264_path;
+	float yolo_score_threshold;
 };
 
 /**

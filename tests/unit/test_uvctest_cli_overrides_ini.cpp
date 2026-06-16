@@ -125,5 +125,38 @@ fps = 25
 			return 10;
 	}
 
+	/* Test yolo_score_threshold flags. */
+	{
+		std::vector<std::string> args = {"uvctest", "--yolo-score-threshold", "75"};
+		std::vector<char *> av;
+		for (auto &s : args)
+			av.push_back(s.data());
+		uvctest::CliState cli{};
+		if (uvctest::parse_cli(static_cast<int>(av.size()), av.data(), &cli) != uvctest::CliParseResult::Ok)
+			return 11;
+
+		AppConfig cfg = default_app_config();
+		uvctest::merge_cli_into_config(&cfg, cli);
+
+		if (std::abs(cfg.uvctest.yolo_score_threshold - 0.75f) > 0.0001f)
+			return 12;
+	}
+
+	{
+		std::vector<std::string> args = {"uvctest", "--yolo-score-threshold", "0.45"};
+		std::vector<char *> av;
+		for (auto &s : args)
+			av.push_back(s.data());
+		uvctest::CliState cli{};
+		if (uvctest::parse_cli(static_cast<int>(av.size()), av.data(), &cli) != uvctest::CliParseResult::Ok)
+			return 13;
+
+		AppConfig cfg = default_app_config();
+		uvctest::merge_cli_into_config(&cfg, cli);
+
+		if (std::abs(cfg.uvctest.yolo_score_threshold - 0.45f) > 0.0001f)
+			return 14;
+	}
+
 	return 0;
 }

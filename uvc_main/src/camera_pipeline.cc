@@ -122,10 +122,11 @@ void CameraPipeline::RunLoop(const std::atomic<bool>& shutdown_flag) {
 
 		std::vector<object_detect_result> persons;
 		for (int i = 0; i < od_results.count; i++) {
-			if (od_results.results[i].cls_id == 0) { // person
+			if (od_results.results[i].cls_id == 0 && od_results.results[i].prop >= cfg_.yolo_score_threshold) { // person with score >= threshold
 				persons.push_back(od_results.results[i]);
 			}
 		}
+
 
 		if (frame_idx % 30 == 0) {
 			long long non_zero_pixels = 0;

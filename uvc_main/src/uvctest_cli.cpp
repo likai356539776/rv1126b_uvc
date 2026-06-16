@@ -185,6 +185,17 @@ CliParseResult parse_cli(int argc, char **argv, CliState *out)
 		} else if (a == "--camera-node" && i + 1 < argc) {
 			out->camera_node = argv[++i];
 			out->cli_camera_node = true;
+		} else if (a == "--yolo-score-threshold" && i + 1 < argc) {
+			try {
+				float val = std::stof(argv[++i]);
+				if (val > 1.0f) {
+					val /= 100.0f;
+				}
+				out->yolo_score_threshold = val;
+				out->cli_yolo_score_threshold = true;
+			} catch (...) {
+				return CliParseResult::BadArg;
+			}
 		} else if (a == "-h" || a == "--help") {
 			return CliParseResult::Help;
 		} else {
@@ -252,6 +263,8 @@ void merge_cli_into_config(AppConfig *cfg, const CliState &cli)
 		cfg->uvctest.pip_tile_test_nv12_src_w = cli.cli_cfg.uvctest.pip_tile_test_nv12_src_w;
 	if (cli.cli_pip_tile_test_nv12_src_h)
 		cfg->uvctest.pip_tile_test_nv12_src_h = cli.cli_cfg.uvctest.pip_tile_test_nv12_src_h;
+	if (cli.cli_yolo_score_threshold)
+		cfg->uvctest.yolo_score_threshold = cli.yolo_score_threshold;
 }
 
 bool validate_config(AppConfig *cfg, std::string *err)
@@ -302,7 +315,14 @@ bool validate_config(AppConfig *cfg, std::string *err)
 			return false;
 		}
 	}
+
+	if (cfg->uvctest.yolo_score_threshold < 0.0f || cfg->uvctest.yolo_score_threshold > 1.0f) {
+		if (err)
+			*err = "[uvctest] yolo_score_threshold must be in range [0.0, 1.0] (or [0, 100])";
+		return false;
+	}
 	return true;
 }
 
 } // namespace uvctest
+
