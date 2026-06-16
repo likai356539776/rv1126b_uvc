@@ -124,8 +124,8 @@ struct PipHelperImpl {
 	std::vector<int64_t> tile_last_update_ms;
 	std::vector<uint8_t> tile_has_valid;
 	float pip_width_stretch_factor = 1.0f;
-	bool border_enable = false;
-	int border_radius = 16;
+	bool border_enable = true;
+	int border_radius = 4;
 	int border_thickness = 2;
 	uint8_t border_y = 235;
 	uint8_t border_u = 128;
@@ -258,7 +258,7 @@ extern "C" pip_helper_t *pip_helper_create(int channel_id, const pip_helper_conf
 	}
 	p->pip_width_stretch_factor = cfg->pip_width_stretch_factor > 0.0f ? cfg->pip_width_stretch_factor : 1.0f;
 	p->border_enable = cfg->pip_border_enable != 0;
-	p->border_radius = cfg->pip_border_radius >= 0 ? cfg->pip_border_radius : 16;
+	p->border_radius = cfg->pip_border_radius >= 0 ? cfg->pip_border_radius : 4;
 	p->border_thickness = cfg->pip_border_thickness >= 0 ? cfg->pip_border_thickness : 2;
 	p->border_y = 235;
 	p->border_u = 128;

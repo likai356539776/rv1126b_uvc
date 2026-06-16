@@ -19,8 +19,8 @@ static constexpr int kDefPipH = 360;
 static constexpr int kDefPipJpegQ = 85;
 static constexpr int kDefPipStaleMs = 5000;
 static constexpr float kDefPipStretchW = 1.3f;
-static constexpr bool kDefPipBorderEnable = false;
-static constexpr int kDefPipBorderRadius = 16;
+static constexpr bool kDefPipBorderEnable = true;
+static constexpr int kDefPipBorderRadius = 4;
 static constexpr int kDefPipBorderThickness = 2;
 static const char* kDefPipBorderColor = "#FFFFFF";
 

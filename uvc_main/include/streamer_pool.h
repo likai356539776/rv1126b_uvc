@@ -46,8 +46,8 @@ struct StreamerChannelConfig {
 	int pip_tile_gap_px = 10;
 	int pip_tile_margin_px = 10;
 	float pip_width_stretch_factor = 1.3f;
-	bool pip_border_enable = false;
-	int pip_border_radius = 16;
+	bool pip_border_enable = true;
+	int pip_border_radius = 4;
 	int pip_border_thickness = 2;
 	std::string pip_border_color = "#FFFFFF";
 };

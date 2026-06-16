@@ -680,8 +680,8 @@ AppConfig default_app_config() {
 	cfg.libmy_uvc_pip.pip_tile_gap_px = 0;
 	cfg.libmy_uvc_pip.pip_tile_margin_px = 0;
 	cfg.libmy_uvc_pip.pip_width_stretch_factor = 1.3f;
-	cfg.libmy_uvc_pip.pip_border_enable = false;
-	cfg.libmy_uvc_pip.pip_border_radius = 16;
+	cfg.libmy_uvc_pip.pip_border_enable = true;
+	cfg.libmy_uvc_pip.pip_border_radius = 4;
 	cfg.libmy_uvc_pip.pip_border_thickness = 2;
 	cfg.libmy_uvc_pip.pip_border_color = "#FFFFFF";
 	for (int i = 0; i < kMaxUvcChannels; i++) {
