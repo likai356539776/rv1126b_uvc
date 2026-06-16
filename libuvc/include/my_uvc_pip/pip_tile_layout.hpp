@@ -121,4 +121,59 @@ inline int pip_tile_layout_bottom_third(const PipTileLayoutSpec &spec,
 	return n;
 }
 
+inline int pip_tile_layout_full_screen(const PipTileLayoutSpec &spec,
+                                       std::array<PipTileRect, kPipTileLayoutMax> *out)
+{
+	if (!out || spec.canvas_w <= 0 || spec.canvas_h <= 0)
+		return -1;
+	const int n = spec.n_tiles;
+	if (n < 1 || n > kPipTileLayoutMax)
+		return -1;
+	if (spec.gap_px < 0 || spec.margin_px < 0)
+		return -1;
+
+	const int m = spec.margin_px;
+	const int g = spec.gap_px;
+
+	if (n <= 4) {
+		const int inner_w = spec.canvas_w - 2 * m;
+		if (inner_w <= 0)
+			return -1;
+		const int tw = (inner_w - (n - 1) * g) / n;
+		if (tw <= 0)
+			return -1;
+		const int tile_h = spec.canvas_h - 2 * m;
+		if (tile_h <= 0)
+			return -1;
+		for (int i = 0; i < n; i++) {
+			(*out)[static_cast<size_t>(i)] = PipTileRect{m + i * (tw + g), m, tw, tile_h};
+		}
+		return n;
+	}
+
+	const int n0 = (n + 1) / 2;
+	const int n1 = n - n0;
+	const int inner_h = spec.canvas_h - 2 * m - g;
+	const int row_h = inner_h / 2;
+	if (row_h <= 0)
+		return -1;
+
+	const int inner_w = spec.canvas_w - 2 * m;
+	const int tw0 = (inner_w - (n0 - 1) * g) / n0;
+	if (tw0 <= 0)
+		return -1;
+	for (int i = 0; i < n0; i++) {
+		(*out)[static_cast<size_t>(i)] = PipTileRect{m + i * (tw0 + g), m, tw0, row_h};
+	}
+
+	const int tw1 = (inner_w - (n1 - 1) * g) / n1;
+	if (tw1 <= 0)
+		return -1;
+	const int y1 = m + row_h + g;
+	for (int i = 0; i < n1; i++) {
+		(*out)[static_cast<size_t>(static_cast<size_t>(n0) + i)] = PipTileRect{m + i * (tw1 + g), y1, tw1, row_h};
+	}
+	return n;
+}
+
 } // namespace my_uvc_pip

@@ -10,7 +10,7 @@
 namespace my_app {
 
 PersonTracker::PersonTracker() {
-	slots_.resize(1 + my_uvc_pip::kPipTileLayoutMax);
+	slots_.resize(my_uvc_pip::kPipTileLayoutMax);
 }
 
 void PersonTracker::GetAlignedCropBoxCentered(int src_w, int src_h, int cx, int cy, int w, int h,
@@ -57,11 +57,7 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 	std::vector<int> person_matched_to_slot(P, -1);
 	std::vector<bool> slot_occupied(slots_.size(), false);
 
-	if (P == 1) {
-		// Special case: If only 1 person is detected, they MUST go to Slot 0 (Presenter)
-		person_matched_to_slot[0] = 0;
-		slot_occupied[0] = true;
-	} else if (P > 1) {
+	if (P > 0) {
 		// Precompute center coordinates for all detected persons
 		struct PersonCenter {
 			double cx;
@@ -225,21 +221,23 @@ std::shared_ptr<FrameData> PersonTracker::GenerateFrameData(long long frame_idx,
 	new_frame->bg_h = vh;
 	new_frame->bg_nv12.assign(nv12_data, nv12_data + vw * vh * 3 / 2);
 
-	// Presenter (Slot 0)
-	if (slots_[0].active && !slots_[0].last_nv12.empty()) {
-		new_frame->presenter_w = slots_[0].crop_w;
-		new_frame->presenter_h = slots_[0].crop_h;
-		new_frame->presenter_nv12 = slots_[0].last_nv12;
-		new_frame->presenter_updated = true;
-	}
+	// Presenter is no longer populated from YOLO slots
+	new_frame->presenter_w = 0;
+	new_frame->presenter_h = 0;
+	new_frame->presenter_updated = false;
 
-	// Tiles (Slots 1..M)
+	// Tiles (Slots 0..M-1)
 	std::vector<size_t> active_tile_indices;
-	for (size_t s = 1; s < slots_.size(); s++) {
+	for (size_t s = 0; s < slots_.size(); s++) {
 		if (slots_[s].active && !slots_[s].last_nv12.empty()) {
 			active_tile_indices.push_back(s);
 		}
 	}
+
+	// Sort active slots left-to-right (by cx)
+	std::sort(active_tile_indices.begin(), active_tile_indices.end(), [this](size_t a, size_t b) {
+		return slots_[a].cx < slots_[b].cx;
+	});
 
 	int n_active = std::min((int)active_tile_indices.size(), max_tiles);
 	new_frame->tiles.resize(n_active);

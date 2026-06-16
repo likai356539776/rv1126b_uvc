@@ -12,10 +12,10 @@
 namespace fs = std::filesystem;
 
 /* 与 src/app_config.cpp 中 default_app_config() 的 pip 字段保持同步（回归防漂移）。 */
-static constexpr int kDefPipX = 20;
-static constexpr int kDefPipY = 20;
-static constexpr int kDefPipW = 640;
-static constexpr int kDefPipH = 480;
+static constexpr int kDefPipX = 320;
+static constexpr int kDefPipY = 720;
+static constexpr int kDefPipW = 1280;
+static constexpr int kDefPipH = 360;
 static constexpr int kDefPipJpegQ = 85;
 static constexpr int kDefPipStaleMs = 5000;
 

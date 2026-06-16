@@ -621,10 +621,10 @@ AppConfig default_app_config() {
 	cfg.uvctest.pip_tile_test_nv12_src_h = 0;
 	cfg.libmy_uvc_pip.pip_enable = false;
 	cfg.libmy_uvc_pip.pip_overlay_path.clear();
-	cfg.libmy_uvc_pip.pip_x = 20;
-	cfg.libmy_uvc_pip.pip_y = 20;
-	cfg.libmy_uvc_pip.pip_w = 640;
-	cfg.libmy_uvc_pip.pip_h = 480;
+	cfg.libmy_uvc_pip.pip_x = 320;
+	cfg.libmy_uvc_pip.pip_y = 720;
+	cfg.libmy_uvc_pip.pip_w = 1280;
+	cfg.libmy_uvc_pip.pip_h = 360;
 	cfg.libmy_uvc_pip.pip_jpeg_quality = 85;
 	cfg.libmy_uvc_pip.pip_overlay_stale_timeout_ms = 5000;
 	cfg.libmy_uvc_pip.pip_tile_n_tiles = 0;
