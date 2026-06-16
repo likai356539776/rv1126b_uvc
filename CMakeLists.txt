@@ -32,12 +32,12 @@ if(MY_UVC_ENABLE_UNIT_TESTS AND NOT CMAKE_CROSSCOMPILING)
 	enable_testing()
 	add_executable(test_my_uvc_config_mapping
 		tests/unit/test_my_uvc_config_mapping.cpp
-		uvc_main/libmy_uvc_config_bridge.cpp
-		libuvc/src/app_config.cpp
+		uvc_main/src/libmy_uvc_config_bridge.cpp
 	)
+	target_link_libraries(test_my_uvc_config_mapping PRIVATE my_uvc_config_lib)
 	target_include_directories(test_my_uvc_config_mapping PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}/libuvc/include
-		${CMAKE_CURRENT_SOURCE_DIR}/uvc_main
+		${CMAKE_CURRENT_SOURCE_DIR}/uvc_main/include
 	)
 	target_compile_options(test_my_uvc_config_mapping PRIVATE -Wall -Wextra)
 	add_test(NAME test_my_uvc_config_mapping COMMAND test_my_uvc_config_mapping)
@@ -55,28 +55,28 @@ if(MY_UVC_ENABLE_UNIT_TESTS AND NOT CMAKE_CROSSCOMPILING)
 
 	add_executable(test_uvctest_cli_overrides_ini
 		tests/unit/test_uvctest_cli_overrides_ini.cpp
-		uvc_main/uvctest_cli.cpp
-		libuvc/src/app_config.cpp
+		uvc_main/src/uvctest_cli.cpp
 	)
+	target_link_libraries(test_uvctest_cli_overrides_ini PRIVATE my_uvc_config_lib)
 	target_include_directories(test_uvctest_cli_overrides_ini PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}/libuvc/include
-		${CMAKE_CURRENT_SOURCE_DIR}/uvc_main
+		${CMAKE_CURRENT_SOURCE_DIR}/uvc_main/include
 	)
 	target_compile_options(test_uvctest_cli_overrides_ini PRIVATE -Wall -Wextra)
 	add_test(NAME test_uvctest_cli_overrides_ini COMMAND test_uvctest_cli_overrides_ini)
 
 	add_executable(test_app_config_path_directory_vs_file
 		tests/unit/test_app_config_path_directory_vs_file.cpp
-		libuvc/src/app_config.cpp
 	)
+	target_link_libraries(test_app_config_path_directory_vs_file PRIVATE my_uvc_config_lib)
 	target_include_directories(test_app_config_path_directory_vs_file PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libuvc/include)
 	target_compile_options(test_app_config_path_directory_vs_file PRIVATE -Wall -Wextra)
 	add_test(NAME test_app_config_path_directory_vs_file COMMAND test_app_config_path_directory_vs_file)
 
 	add_executable(test_app_config_ini_merge
 		tests/unit/test_app_config_ini_merge.cpp
-		libuvc/src/app_config.cpp
 	)
+	target_link_libraries(test_app_config_ini_merge PRIVATE my_uvc_config_lib)
 	target_include_directories(test_app_config_ini_merge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libuvc/include)
 	target_compile_options(test_app_config_ini_merge PRIVATE -Wall -Wextra)
 	add_test(NAME test_app_config_ini_merge COMMAND test_app_config_ini_merge)
@@ -88,8 +88,8 @@ if(MY_UVC_ENABLE_UNIT_TESTS AND NOT CMAKE_CROSSCOMPILING)
 
 	add_executable(test_pip_helper_config_defaults
 		tests/unit/test_pip_helper_config_defaults.cpp
-		libuvc/src/app_config.cpp
 	)
+	target_link_libraries(test_pip_helper_config_defaults PRIVATE my_uvc_config_lib)
 	target_include_directories(test_pip_helper_config_defaults PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libuvc/include)
 	target_compile_options(test_pip_helper_config_defaults PRIVATE -Wall -Wextra)
 	add_test(NAME test_pip_helper_config_defaults COMMAND test_pip_helper_config_defaults)
@@ -101,28 +101,28 @@ if(MY_UVC_ENABLE_UNIT_TESTS AND NOT CMAKE_CROSSCOMPILING)
 
 	add_executable(test_pip_ini_stale_timeout_parse
 		tests/unit/test_pip_ini_stale_timeout_parse.cpp
-		libuvc/src/app_config.cpp
 	)
+	target_link_libraries(test_pip_ini_stale_timeout_parse PRIVATE my_uvc_config_lib)
 	target_include_directories(test_pip_ini_stale_timeout_parse PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libuvc/include)
 	target_compile_options(test_pip_ini_stale_timeout_parse PRIVATE -Wall -Wextra)
 	add_test(NAME test_pip_ini_stale_timeout_parse COMMAND test_pip_ini_stale_timeout_parse)
 
-	add_executable(test_pip_tile_ini_parse tests/unit/test_pip_tile_ini_parse.cpp libuvc/src/app_config.cpp)
+	add_executable(test_pip_tile_ini_parse tests/unit/test_pip_tile_ini_parse.cpp)
+	target_link_libraries(test_pip_tile_ini_parse PRIVATE my_uvc_config_lib)
 	target_include_directories(test_pip_tile_ini_parse PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libuvc/include)
 	target_compile_options(test_pip_tile_ini_parse PRIVATE -Wall -Wextra)
 	add_test(NAME test_pip_tile_ini_parse COMMAND test_pip_tile_ini_parse)
 
-	add_executable(test_uvctest_pip_tile_nv12_paths_ini tests/unit/test_uvctest_pip_tile_nv12_paths_ini.cpp
-		libuvc/src/app_config.cpp
-	)
+	add_executable(test_uvctest_pip_tile_nv12_paths_ini tests/unit/test_uvctest_pip_tile_nv12_paths_ini.cpp)
+	target_link_libraries(test_uvctest_pip_tile_nv12_paths_ini PRIVATE my_uvc_config_lib)
 	target_include_directories(test_uvctest_pip_tile_nv12_paths_ini PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libuvc/include)
 	target_compile_options(test_uvctest_pip_tile_nv12_paths_ini PRIVATE -Wall -Wextra)
 	add_test(NAME test_uvctest_pip_tile_nv12_paths_ini COMMAND test_uvctest_pip_tile_nv12_paths_ini)
 
 	add_executable(test_my_uvc_ini_section_loader
 		tests/unit/test_my_uvc_ini_section_loader.cpp
-		libuvc/src/app_config.cpp
 	)
+	target_link_libraries(test_my_uvc_ini_section_loader PRIVATE my_uvc_config_lib)
 	target_include_directories(test_my_uvc_ini_section_loader PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libuvc/include)
 	target_compile_options(test_my_uvc_ini_section_loader PRIVATE -Wall -Wextra)
 	add_test(NAME test_my_uvc_ini_section_loader COMMAND test_my_uvc_ini_section_loader)
@@ -130,8 +130,8 @@ if(MY_UVC_ENABLE_UNIT_TESTS AND NOT CMAKE_CROSSCOMPILING)
 	add_executable(test_my_uvc_load_ini_section_c_api
 		tests/unit/test_my_uvc_load_ini_section_c_api.cpp
 		libuvc/src/core/my_uvc_load_ini_section_c.cpp
-		libuvc/src/app_config.cpp
 	)
+	target_link_libraries(test_my_uvc_load_ini_section_c_api PRIVATE my_uvc_config_lib)
 	target_include_directories(test_my_uvc_load_ini_section_c_api PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libuvc/include)
 	target_compile_options(test_my_uvc_load_ini_section_c_api PRIVATE -Wall -Wextra)
 	add_test(NAME test_my_uvc_load_ini_section_c_api COMMAND test_my_uvc_load_ini_section_c_api)

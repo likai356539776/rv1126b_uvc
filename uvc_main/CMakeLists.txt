@@ -7,15 +7,19 @@ add_subdirectory(${MODEL_ZOO_DIR}/3rdparty 3rdparty.out)
 add_subdirectory(${MODEL_ZOO_DIR}/utils utils.out)
 
 add_executable(uvc_main
-	main.cpp
-	libmy_uvc_config_bridge.cpp
-	uvctest_cli.cpp
-	../libuvc/src/app_config.cpp
-	yolo_person_detector.cc
+	src/main.cpp
+	src/libmy_uvc_config_bridge.cpp
+	src/uvctest_cli.cpp
+	src/yolo_person_detector.cc
 	vendor/yolov8/postprocess.cc
 	vendor/yolov8/rknpu2/yolov8.cc
-	camera_rockit_vi_vo.cc
-	app_log.cc
+	src/camera_rockit_vi_vo.cc
+	src/app_log.cc
+	src/person_tracker.cc
+	src/camera_pipeline.cc
+	src/streamer_pool.cc
+	src/stats_monitor.cc
+	src/pipeline_coordinator.cc
 )
 
 target_compile_definitions(uvc_main PRIVATE
@@ -24,7 +28,8 @@ target_compile_definitions(uvc_main PRIVATE
 )
 
 target_include_directories(uvc_main PRIVATE
-	${CMAKE_CURRENT_SOURCE_DIR}
+	${CMAKE_CURRENT_SOURCE_DIR}/include
+	${CMAKE_CURRENT_SOURCE_DIR}/include/uvctest
 	${CMAKE_CURRENT_SOURCE_DIR}/vendor/yolov8
 	${CMAKE_SYSROOT}/usr/include/rockchip
 	${CMAKE_SYSROOT}/usr/include/rga
@@ -43,6 +48,7 @@ target_compile_options(uvc_main PRIVATE
 
 target_link_libraries(uvc_main PRIVATE 
 	my_uvc_lib 
+	my_uvc_config_lib
 	my_uvc_pip_helper
 	fileutils
 	imageutils

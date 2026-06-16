@@ -4,12 +4,23 @@ option(MY_UVC_PIP_HELPER_TRANSITIONAL_IO "pip_helper may preload overlay from pi
 
 set(MY_UVC_VENDOR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/uvc")
 
+add_library(my_uvc_config_lib STATIC
+	src/app_config.cpp
+)
+set_target_properties(my_uvc_config_lib PROPERTIES
+	POSITION_INDEPENDENT_CODE ON
+)
+target_include_directories(my_uvc_config_lib
+	PUBLIC
+	$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+	$<INSTALL_INTERFACE:include>
+)
+
 add_library(my_uvc_lib SHARED
 	src/core/my_uvc.cpp
 	src/core/my_uvc_video_id_resolve.cpp
 	src/core/my_uvc_submit_validate.cpp
 	src/core/my_uvc_load_ini_section_c.cpp
-	src/app_config.cpp
 	src/uevent_stub.c
 	${MY_UVC_VENDOR_DIR}/uvc_control.c
 	${MY_UVC_VENDOR_DIR}/uvc_encode.c
@@ -46,9 +57,9 @@ target_compile_options(my_uvc_lib PRIVATE
 )
 
 if(MY_UVC_JPEG_LIB)
-	target_link_libraries(my_uvc_lib PRIVATE pthread "${MY_UVC_JPEG_LIB}" rockchip_mpp rga)
+	target_link_libraries(my_uvc_lib PRIVATE pthread "${MY_UVC_JPEG_LIB}" rockchip_mpp rga my_uvc_config_lib)
 else()
-	target_link_libraries(my_uvc_lib PRIVATE pthread JPEG::JPEG rockchip_mpp rga)
+	target_link_libraries(my_uvc_lib PRIVATE pthread JPEG::JPEG rockchip_mpp rga my_uvc_config_lib)
 endif()
 
 add_library(my_uvc_pip_helper STATIC
