@@ -107,6 +107,8 @@ adb_exec push "${PROJECT_DIR}/build-rv1126b/libuvc/libmy_uvc.so.1.0.0" /usr/lib/
 adb_exec shell ln -sf libmy_uvc.so.1.0.0 /usr/lib/libmy_uvc.so.1
 adb_exec shell ln -sf libmy_uvc.so.1 /usr/lib/libmy_uvc.so
 adb_exec push "${PROJECT_DIR}/scripts/my_uvc_usb_config.sh" /usr/bin/
+adb_exec push "${PROJECT_DIR}/scripts/start_uvc_pip.sh" /usr/bin/
+adb_exec push "${PROJECT_DIR}/scripts/stop_uvc_pip.sh" /usr/bin/
 if [[ "${DEPLOY_SINGLE_INI}" -eq 1 ]]; then
 	adb_exec push "${LOCAL_CONFIG_PATH}" "${REMOTE_CONFIG_PATH}"
 	adb_exec shell chmod 666 "${REMOTE_CONFIG_PATH}"
@@ -122,6 +124,8 @@ fi
 
 adb_exec shell chmod +x /usr/bin/uvctest
 adb_exec shell chmod +x /usr/bin/my_uvc_usb_config.sh
+adb_exec shell chmod +x /usr/bin/start_uvc_pip.sh
+adb_exec shell chmod +x /usr/bin/stop_uvc_pip.sh
 
 echo "[my_uvc_install] Deploy finished."
 
