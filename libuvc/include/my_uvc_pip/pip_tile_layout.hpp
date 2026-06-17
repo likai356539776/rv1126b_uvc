@@ -1,7 +1,7 @@
 #pragma once
 
 /**
- * PiP 下三分之一网格布局（§2.4）：≤8 路单行，>8 路双行（首行 8、次行剩余），间隙与边距可配。
+ * PiP 全屏网格布局（§2.4）：≤8 路单行，>8 路双行（首行 8、次行剩余），间隙与边距可配。
  * 纯函数，无 I/O，供 pip_helper 与单元测试复用。
  */
 #include <array>
@@ -23,7 +23,7 @@ struct PipTileLayoutSpec {
 	/** 网格路数 1~16 */
 	int n_tiles = 0;
 	int gap_px = 0;
-	/** 下三分之一带内边距（相对整幅画布左右与带上下） */
+	/** 全屏带内边距（相对整幅画布左右与带上下） */
 	int margin_px = 0;
 };
 
@@ -31,7 +31,7 @@ inline constexpr int kPipTileLayoutMax = 16;
 
 /**
  * 由布局矩形得到 NV12/RGA 缩放与裸缓冲所用宽高：先偶对齐再宽 4 对齐（RK RGA 要求 stride 4 对齐）。
- * 与 pip_tile_layout_bottom_third 算出的 w/h 可能差 0~3 像素；叠画仍用 tox/toy 定位。
+ * 与 pip_tile_layout_full_screen 算出的 w/h 可能差 0~3 像素；叠画仍用 tox/toy 定位。
  */
 inline bool pip_tile_rect_nv12_plane_wh(const PipTileRect &r, int *out_w, int *out_h)
 {

@@ -36,17 +36,19 @@ typedef struct pip_helper_config {
 	int pip_jpeg_quality;
 	const char *pip_overlay_path;
 	/**
-	 * 断流超时（毫秒，设计 v1.12）：`-1` = 库缺省 5000；`0` = 不因超时露背图；`>0` = 自定义。
+	 * 断流超时（毫秒，设计 v1.12）：`-1` = 库缺省 5000；`0` = 不因超时停止叠加该路；`>0` = 自定义。
 	 * 从 AppConfig / ini 传入时仅为非负；第三方可直接设 `-1`。
 	 */
 	int pip_overlay_stale_timeout_ms;
 	/**
-	 * 下三分之一网格（§2.4）：`0` = 仅主讲人小窗，无网格；`1~16` = 槽位数，与 pip_tile_layout_bottom_third 一致。
+	 * 全屏网格（§2.4）：`0` = 仅主讲人小窗，无网格；`1~16` = 槽位数，与 pip_tile_layout_full_screen 一致。
 	 */
 	int pip_tile_n_tiles;
 	int pip_tile_gap_px;
 	int pip_tile_margin_px;
 	float pip_width_stretch_factor;
+	float pip_adaptive_scale_w;
+	float pip_adaptive_scale_h;
 	int pip_border_enable;
 	int pip_border_radius;
 	int pip_border_thickness;
@@ -78,7 +80,7 @@ typedef struct pip_helper_composite_opts {
 	/**
 	 * 可选，长度 ≥ n_active。NULL：旧语义，每帧 tile_nv12[i] 均为新帧且不可为 NULL。
 	 * 非 NULL：tile_nv12_updated[i]≠0 时须提供 tile_nv12[i]；为 0 时可不提供指针，库内沿用该槽
-	 * NV12 缓存并套用 pip_overlay_stale_timeout_ms（与主讲人一致）；超时则该格不叠画（露背图）。
+	 * NV12 缓存并套用 pip_overlay_stale_timeout_ms（与主讲人一致）；超时则该格不叠画（停止叠加该路）。
 	 */
 	const int *tile_nv12_updated;
 } pip_helper_composite_opts_t;

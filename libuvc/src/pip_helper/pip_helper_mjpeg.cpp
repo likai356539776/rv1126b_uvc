@@ -219,10 +219,28 @@ extern "C" pip_helper_t *pip_helper_create(int channel_id, const pip_helper_conf
 		return nullptr;
 	}
 #endif
-	if (cfg->pip_w <= 0 || cfg->pip_h <= 0) {
-		set_err("pip_w/pip_h invalid");
-		return nullptr;
+	// Simplify: Strictly use config values. 0 means "auto/adaptive".
+	float sw = cfg->pip_adaptive_scale_w > 0.0f ? cfg->pip_adaptive_scale_w : 0.666667f;
+	float sh = cfg->pip_adaptive_scale_h > 0.0f ? cfg->pip_adaptive_scale_h : 0.333333f;
+
+	int pw = (cfg->pip_w > 0) ? cfg->pip_w : static_cast<int>(cfg->canvas_width * sw);
+	int ph = (cfg->pip_h > 0) ? cfg->pip_h : static_cast<int>(cfg->canvas_height * sh);
+	int px = cfg->pip_x;
+	int py = cfg->pip_y;
+
+	// If position is not explicitly provided (>0), default to bottom-center
+	if (px <= 0 && py <= 0) {
+		px = (cfg->canvas_width - pw) / 2;
+		py = cfg->canvas_height - ph;
 	}
+
+	// Final safety bounds clamping (no forced resets)
+	if (pw > cfg->canvas_width) pw = cfg->canvas_width;
+	if (ph > cfg->canvas_height) ph = cfg->canvas_height;
+	if (px < 0) px = 0;
+	if (py < 0) py = 0;
+	if (px + pw > cfg->canvas_width) px = cfg->canvas_width - pw;
+	if (py + ph > cfg->canvas_height) py = cfg->canvas_height - ph;
 
 	auto *p = new (std::nothrow) PipHelperImpl{};
 	if (!p) {
@@ -231,24 +249,6 @@ extern "C" pip_helper_t *pip_helper_create(int channel_id, const pip_helper_conf
 	}
 	p->channel_id = channel_id;
 	{
-		int pw = cfg->pip_w;
-		int ph = cfg->pip_h;
-		int px = cfg->pip_x;
-		int py = cfg->pip_y;
-
-		// Adapt dynamically if coordinates are default-initialized but canvas is not 1080p, or if coordinates exceed bounds
-		if (pw == 1280 && ph == 360 && px == 320 && py == 720 && (cfg->canvas_width != 1920 || cfg->canvas_height != 1080)) {
-			pw = (cfg->canvas_width * 2) / 3;
-			ph = cfg->canvas_height / 3;
-			px = (cfg->canvas_width - pw) / 2;
-			py = cfg->canvas_height - ph;
-		} else if (px + pw > cfg->canvas_width || py + ph > cfg->canvas_height) {
-			pw = (cfg->canvas_width * 2) / 3;
-			ph = cfg->canvas_height / 3;
-			px = (cfg->canvas_width - pw) / 2;
-			py = cfg->canvas_height - ph;
-		}
-
 		int ow = (pw + 1) & ~1;
 		int oh = (ph + 1) & ~1;
 		p->pip_ow = (ow / 4) * 4;

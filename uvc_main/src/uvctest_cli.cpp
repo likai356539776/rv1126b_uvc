@@ -316,11 +316,7 @@ bool validate_config(AppConfig *cfg, std::string *err)
 				*err = "[uvctest] pip_enable requires pip_overlay_path (ini or --pip-overlay)";
 			return false;
 		}
-		if (cfg->libmy_uvc_pip.pip_w <= 0 || cfg->libmy_uvc_pip.pip_h <= 0) {
-			if (err)
-				*err = "[uvctest] pip_w and pip_h must be positive";
-			return false;
-		}
+		// pip_w and pip_h can now be 0 to trigger adaptive logic in pip_helper
 	}
 
 	if (cfg->uvctest.yolo_score_threshold < 0.0f || cfg->uvctest.yolo_score_threshold > 1.0f) {

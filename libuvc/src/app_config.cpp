@@ -442,6 +442,24 @@ bool apply_config_kv(const std::string &section, const std::string &key, const s
 			return false;
 		}
 		cfg->libmy_uvc_pip.pip_width_stretch_factor = v;
+	} else if (key == "pip_adaptive_scale_w") {
+		if (!allow_pip) return reject_key("pip_adaptive_scale_w");
+		matched = true;
+		float v = 0.0f;
+		if (!to_float(val, &v) || v <= 0.0f) {
+			if (err) *err = "invalid pip_adaptive_scale_w at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->libmy_uvc_pip.pip_adaptive_scale_w = v;
+	} else if (key == "pip_adaptive_scale_h") {
+		if (!allow_pip) return reject_key("pip_adaptive_scale_h");
+		matched = true;
+		float v = 0.0f;
+		if (!to_float(val, &v) || v <= 0.0f) {
+			if (err) *err = "invalid pip_adaptive_scale_h at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->libmy_uvc_pip.pip_adaptive_scale_h = v;
 	} else if (key == "pip_border_enable") {
 		if (!allow_pip)
 			return reject_key("pip_border_enable");
@@ -670,16 +688,18 @@ AppConfig default_app_config() {
 	cfg.uvctest.pip_tile_test_nv12_src_h = 0;
 	cfg.libmy_uvc_pip.pip_enable = false;
 	cfg.libmy_uvc_pip.pip_overlay_path.clear();
-	cfg.libmy_uvc_pip.pip_x = 320;
-	cfg.libmy_uvc_pip.pip_y = 720;
-	cfg.libmy_uvc_pip.pip_w = 1280;
-	cfg.libmy_uvc_pip.pip_h = 360;
+	cfg.libmy_uvc_pip.pip_x = 0;
+	cfg.libmy_uvc_pip.pip_y = 0;
+	cfg.libmy_uvc_pip.pip_w = 0;
+	cfg.libmy_uvc_pip.pip_h = 0;
 	cfg.libmy_uvc_pip.pip_jpeg_quality = 85;
 	cfg.libmy_uvc_pip.pip_overlay_stale_timeout_ms = 5000;
 	cfg.libmy_uvc_pip.pip_tile_n_tiles = 0;
 	cfg.libmy_uvc_pip.pip_tile_gap_px = 0;
 	cfg.libmy_uvc_pip.pip_tile_margin_px = 0;
 	cfg.libmy_uvc_pip.pip_width_stretch_factor = 1.3f;
+	cfg.libmy_uvc_pip.pip_adaptive_scale_w = 0.666667f;
+	cfg.libmy_uvc_pip.pip_adaptive_scale_h = 0.333333f;
 	cfg.libmy_uvc_pip.pip_border_enable = true;
 	cfg.libmy_uvc_pip.pip_border_radius = 4;
 	cfg.libmy_uvc_pip.pip_border_thickness = 2;

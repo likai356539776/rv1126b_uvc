@@ -98,6 +98,8 @@ int PipelineCoordinator::Run(const std::atomic<bool>& shutdown_flag) {
 		ch.pip_tile_gap_px = cfg_.libmy_uvc_pip.pip_tile_gap_px;
 		ch.pip_tile_margin_px = cfg_.libmy_uvc_pip.pip_tile_margin_px;
 		ch.pip_width_stretch_factor = cfg_.libmy_uvc_pip.pip_width_stretch_factor;
+		ch.pip_adaptive_scale_w = cfg_.libmy_uvc_pip.pip_adaptive_scale_w;
+		ch.pip_adaptive_scale_h = cfg_.libmy_uvc_pip.pip_adaptive_scale_h;
 		ch.pip_border_enable = cfg_.libmy_uvc_pip.pip_border_enable;
 		ch.pip_border_radius = cfg_.libmy_uvc_pip.pip_border_radius;
 		ch.pip_border_thickness = cfg_.libmy_uvc_pip.pip_border_thickness;
