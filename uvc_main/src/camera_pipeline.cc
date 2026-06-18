@@ -33,7 +33,7 @@ bool CameraPipeline::Initialize(const CameraPipelineConfig& cfg) {
 		camera_reader_ = std::make_unique<CameraRockitRgbReader>();
 	}
 
-	if (camera_reader_->Open(cfg_.width, cfg_.height, cfg_.camera_node, cfg_.fps) != 0) {
+	if (camera_reader_->Open(cfg_.width, cfg_.height, cfg_.camera_node, cfg_.fps, cfg_.camera_width, cfg_.camera_height) != 0) {
 		APP_LOGE("camera_pipeline: CameraReader Open failed (type: %s, node: %s)\n",
 		         cfg_.camera_type.c_str(), cfg_.camera_node.c_str());
 		yolo_.Shutdown();
@@ -107,7 +107,7 @@ void CameraPipeline::RunLoop(const std::atomic<bool>& shutdown_flag) {
 						break;
 					}
 					APP_LOGI("camera_pipeline: Attempting to reconnect to V4L2 node %s...\n", cfg_.camera_node.c_str());
-					if (camera_reader_->Open(cfg_.width, cfg_.height, cfg_.camera_node, cfg_.fps) == 0) {
+					if (camera_reader_->Open(cfg_.width, cfg_.height, cfg_.camera_node, cfg_.fps, cfg_.camera_width, cfg_.camera_height) == 0) {
 						APP_LOGI("camera_pipeline: Reconnection successful! Re-initializing buffers...\n");
 						vw = camera_reader_->width();
 						vh = camera_reader_->height();

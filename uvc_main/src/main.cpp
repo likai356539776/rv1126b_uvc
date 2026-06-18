@@ -19,7 +19,7 @@ void print_usage(const char *argv0) {
 	std::fprintf(stderr,
 	             "Usage: %s [-c dir|file] [--codec mjpeg] [--channels n] [--width w] "
 	             "[--height h] [--fps fps] "
-	             "[--size WxH] "
+	             "[--size WxH] [--camera-size WxH] "
 	             "[--pip-enable 0|1] [--pip-x n] [--pip-y n] [--pip-w n] [--pip-h n] "
 	             "[--pip-jpeg-quality 1-100] "
 	             "[--log-every n] [--log-level 0|1|2] [--stats-enable 0|1] "
@@ -64,10 +64,11 @@ int main(int argc, char **argv) {
 	// Set global application log level
 	g_app_log_level = cfg.libmy_uvc.log_level;
 
-	APP_LOGI("config: codec=%s channels=%d width=%d height=%d fps=%d prefer_host_fps=%d "
+	APP_LOGI("config: codec=%s channels=%d width=%d height=%d fps=%d camera_limit=%dx%d prefer_host_fps=%d "
 	         "idle_sleep_ms=%d log_level=%d stats_enable=%d stats_interval_sec=%d\n",
 	         cfg.libmy_uvc.video_codec.c_str(), cfg.libmy_uvc.channels,
 	         cfg.libmy_uvc.width, cfg.libmy_uvc.height, cfg.libmy_uvc.fps,
+	         cfg.uvctest.camera_width, cfg.uvctest.camera_height,
 	         cfg.libmy_uvc.prefer_host_fps ? 1 : 0,
 	         cfg.libmy_uvc.idle_sleep_ms, cfg.libmy_uvc.log_level, cfg.uvctest.stats_enable ? 1 : 0,
 	         cfg.uvctest.stats_interval_sec);

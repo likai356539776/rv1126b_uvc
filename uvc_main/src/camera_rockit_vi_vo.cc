@@ -475,14 +475,19 @@ void CameraRockitRgbReader::UnbindAll() {
   sys_bound_ = false;
 }
 
-int CameraRockitRgbReader::Open(int width, int height, const std::string& node, int fps) {
+int CameraRockitRgbReader::Open(int width, int height, const std::string& node, int fps, int camera_width, int camera_height) {
   (void)node;
   RockitCameraConfig cfg;
   cfg.vi_pipe_id = 0;
   cfg.vi_dev_id = 0;
   cfg.vi_chn_id = 0;
-  cfg.width = width;
-  cfg.height = height;
+  if (camera_width > 0 && camera_height > 0) {
+    cfg.width = camera_width;
+    cfg.height = camera_height;
+  } else {
+    cfg.width = width;
+    cfg.height = height;
+  }
   cfg.vo_disp_width = height;  // Transpose display size for vertical panel
   cfg.vo_disp_height = width;
   cfg.vo_layer_no_compress = false;

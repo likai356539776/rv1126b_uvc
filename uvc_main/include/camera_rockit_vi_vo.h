@@ -52,7 +52,7 @@ class CameraRockitRgbReader : public CameraReader {
   CameraRockitRgbReader(const CameraRockitRgbReader&) = delete;
   CameraRockitRgbReader& operator=(const CameraRockitRgbReader&) = delete;
 
-  int Open(int width, int height, const std::string& node, int fps) override;
+  int Open(int width, int height, const std::string& node, int fps, int camera_width = 0, int camera_height = 0) override;
   int Open(const RockitCameraConfig& cfg);
   void Close() override;
   void ShutdownSubsystem();

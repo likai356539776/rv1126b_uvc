@@ -244,7 +244,7 @@ bool apply_config_kv(const std::string &section, const std::string &key, const s
 			return reject_key("log_level");
 		matched = true;
 		int v = 0;
-		if (!to_int(val, &v) || v < 0 || v > 2) {
+		if (!to_int(val, &v) || v < 0 || v > 4) {
 			if (err)
 				*err = "invalid log_level at line " + std::to_string(lineno);
 			return false;
@@ -296,6 +296,28 @@ bool apply_config_kv(const std::string &section, const std::string &key, const s
 			return reject_key("camera_node");
 		matched = true;
 		cfg->uvctest.camera_node = trim(val);
+	} else if (key == "camera_width") {
+		if (!allow_test)
+			return reject_key("camera_width");
+		matched = true;
+		int w = 0;
+		if (!to_int(val, &w) || w < 0) {
+			if (err)
+				*err = "invalid camera_width at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->uvctest.camera_width = w;
+	} else if (key == "camera_height") {
+		if (!allow_test)
+			return reject_key("camera_height");
+		matched = true;
+		int h = 0;
+		if (!to_int(val, &h) || h < 0) {
+			if (err)
+				*err = "invalid camera_height at line " + std::to_string(lineno);
+			return false;
+		}
+		cfg->uvctest.camera_height = h;
 	} else if (key == "video_codec" || key == "codec") {
 
 		if (!allow_core)
@@ -359,7 +381,7 @@ bool apply_config_kv(const std::string &section, const std::string &key, const s
 			return reject_key("pip_w");
 		matched = true;
 		int v = 0;
-		if (!to_int(val, &v) || v <= 0) {
+		if (!to_int(val, &v) || v < 0) {
 			if (err)
 				*err = "invalid pip_w at line " + std::to_string(lineno);
 			return false;
@@ -370,7 +392,7 @@ bool apply_config_kv(const std::string &section, const std::string &key, const s
 			return reject_key("pip_h");
 		matched = true;
 		int v = 0;
-		if (!to_int(val, &v) || v <= 0) {
+		if (!to_int(val, &v) || v < 0) {
 			if (err)
 				*err = "invalid pip_h at line " + std::to_string(lineno);
 			return false;
@@ -683,6 +705,8 @@ AppConfig default_app_config() {
 	cfg.uvctest.yolo_score_threshold = 0.60f;
 	cfg.uvctest.camera_type = "rockit";
 	cfg.uvctest.camera_node = "/dev/video0";
+	cfg.uvctest.camera_width = 0;
+	cfg.uvctest.camera_height = 0;
 	cfg.uvctest.pip_tile_test_nv12_src_w = 0;
 
 	cfg.uvctest.pip_tile_test_nv12_src_h = 0;

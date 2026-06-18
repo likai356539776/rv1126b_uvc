@@ -9,7 +9,7 @@ namespace my_app {
 class CameraReader {
 public:
 	virtual ~CameraReader() = default;
-	virtual int Open(int width, int height, const std::string& node, int fps) = 0;
+	virtual int Open(int width, int height, const std::string& node, int fps, int camera_width = 0, int camera_height = 0) = 0;
 	virtual void Close() = 0;
 	virtual int ReadNextRgbInto(image_buffer_t* out, int timeout_ms) = 0;
 	virtual const uint8_t* GetLastNv12Data() const = 0;

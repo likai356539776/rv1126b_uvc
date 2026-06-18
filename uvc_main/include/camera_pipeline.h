@@ -21,6 +21,8 @@ struct CameraPipelineConfig {
 	int width = 1920;
 	int height = 1080;
 	int fps = 25;
+	int camera_width = 0;
+	int camera_height = 0;
 };
 
 

@@ -188,6 +188,17 @@ CliParseResult parse_cli(int argc, char **argv, CliState *out)
 		} else if (a == "--camera-type" && i + 1 < argc) {
 			out->camera_type = argv[++i];
 			out->cli_camera_type = true;
+		} else if (a == "--camera-size" && i + 1 < argc) {
+			int w = 0;
+			int h = 0;
+			std::string size = argv[++i];
+			if (std::sscanf(size.c_str(), "%dx%d", &w, &h) != 2 || w < 0 || h < 0) {
+				std::fprintf(stderr, "[uvctest] invalid --camera-size: %s (expected WxH)\n", size.c_str());
+				return CliParseResult::BadArg;
+			}
+			out->cli_cfg.uvctest.camera_width = w;
+			out->cli_cfg.uvctest.camera_height = h;
+			out->cli_camera_size = true;
 		} else if (a == "--yolo-score-threshold" && i + 1 < argc) {
 			try {
 				float val = std::stof(argv[++i]);
@@ -272,6 +283,10 @@ void merge_cli_into_config(AppConfig *cfg, const CliState &cli)
 		cfg->uvctest.camera_node = cli.camera_node;
 	if (cli.cli_camera_type)
 		cfg->uvctest.camera_type = cli.camera_type;
+	if (cli.cli_camera_size) {
+		cfg->uvctest.camera_width = cli.cli_cfg.uvctest.camera_width;
+		cfg->uvctest.camera_height = cli.cli_cfg.uvctest.camera_height;
+	}
 }
 
 bool validate_config(AppConfig *cfg, std::string *err)
@@ -292,8 +307,8 @@ bool validate_config(AppConfig *cfg, std::string *err)
 		cfg->libmy_uvc.channels = kMaxUvcChannels;
 	if (cfg->libmy_uvc.log_level < 0)
 		cfg->libmy_uvc.log_level = 0;
-	if (cfg->libmy_uvc.log_level > 2)
-		cfg->libmy_uvc.log_level = 2;
+	if (cfg->libmy_uvc.log_level > 4)
+		cfg->libmy_uvc.log_level = 4;
 	if (cfg->uvctest.stats_interval_sec < 1)
 		cfg->uvctest.stats_interval_sec = 1;
 	if (cfg->libmy_uvc.startup_prime_frames < 0)

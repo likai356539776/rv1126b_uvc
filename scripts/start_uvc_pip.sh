@@ -7,7 +7,7 @@
 if [ "$1" = "v4l2" ]; then
   CAMERA_TYPE="v4l2"
   CAMERA_NODE="/dev/video51"
-  RESOLUTION="1280x720"
+  RESOLUTION="1920x1080"
   PIX_FMT="MJPEG"
 elif [ "$1" = "rockit" ]; then
   CAMERA_TYPE="rockit"
@@ -47,7 +47,7 @@ uvctest \
   --yolo-model "$YOLO_MODEL" \
   --yolo-labels "$YOLO_LABELS" \
   --channels 1 \
-  --pip-tile-n-tiles 4 \
+  --pip-tile-n-tiles 8 \
   --pip-jpeg-quality 85 > "$LOG" 2>&1 &
 
 UVCTEST_PID=$!

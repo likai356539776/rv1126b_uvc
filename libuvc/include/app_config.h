@@ -72,6 +72,8 @@ struct UvctestIniFields {
 	float yolo_score_threshold;
 	std::string camera_type;
 	std::string camera_node;
+	int camera_width;
+	int camera_height;
 };
 
 /**

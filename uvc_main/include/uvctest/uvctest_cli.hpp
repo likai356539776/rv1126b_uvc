@@ -49,6 +49,7 @@ struct CliState {
 	bool cli_yolo_labels = false;
 	bool cli_camera_node = false;
 	bool cli_camera_type = false;
+	bool cli_camera_size = false;
 	bool cli_yolo_score_threshold = false;
 };
 
