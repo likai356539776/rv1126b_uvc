@@ -91,8 +91,8 @@ void CameraPipeline::RunLoop(const std::atomic<bool>& shutdown_flag) {
 	while (is_running_.load() && !shutdown_flag.load()) {
 		int read_r = camera_reader_->ReadNextRgbInto(&camera_rgb_img, 1000);
 		if (read_r != 0) {
-			if (read_r == -2) {
-				// Normal timeout, sleep 30ms and retry
+			if (read_r == -2 || read_r == -3) {
+				// Normal timeout or transient frame error, sleep 30ms and retry
 				std::this_thread::sleep_for(std::chrono::milliseconds(30));
 				continue;
 			}

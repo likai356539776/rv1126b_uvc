@@ -242,7 +242,7 @@ int CameraV4l2RgbReader::ReadNextRgbInto(image_buffer_t* out, int timeout_ms) {
 		if (tjGetErrorCode(decompressor_) == TJERR_FATAL) {
 			APP_LOGE("v4l2_camera: tjDecompressHeader3 failed: %s\n", tjGetErrorStr2(decompressor_));
 			ioctl(fd_, VIDIOC_QBUF, &buf);
-			return -1;
+			return -3;
 		} else {
 			APP_LOGW("v4l2_camera: tjDecompressHeader3 warning: %s\n", tjGetErrorStr2(decompressor_));
 		}
@@ -252,7 +252,7 @@ int CameraV4l2RgbReader::ReadNextRgbInto(image_buffer_t* out, int timeout_ms) {
 		if (w > 0 && h > 0) {
 			APP_LOGE("v4l2_camera: Frame size mismatch, expected %dx%d, got %dx%d\n", width_, height_, w, h);
 			ioctl(fd_, VIDIOC_QBUF, &buf);
-			return -1;
+			return -3;
 		}
 	}
 
@@ -260,7 +260,7 @@ int CameraV4l2RgbReader::ReadNextRgbInto(image_buffer_t* out, int timeout_ms) {
 		if (tjGetErrorCode(decompressor_) == TJERR_FATAL) {
 			APP_LOGE("v4l2_camera: tjDecompress2 failed: %s\n", tjGetErrorStr2(decompressor_));
 			ioctl(fd_, VIDIOC_QBUF, &buf);
-			return -1;
+			return -3;
 		} else {
 			// Log warning but do not abort frame
 			APP_LOGW("v4l2_camera: tjDecompress2 warning: %s\n", tjGetErrorStr2(decompressor_));
@@ -284,7 +284,7 @@ int CameraV4l2RgbReader::ReadNextRgbInto(image_buffer_t* out, int timeout_ms) {
 	if (convert_image(&src_rgb, &dst_nv12, nullptr, nullptr, 0) != 0) {
 		APP_LOGE("v4l2_camera: convert_image RGB->NV12 fail\n");
 		ioctl(fd_, VIDIOC_QBUF, &buf);
-		return -1;
+		return -3;
 	}
 
 	if (ioctl(fd_, VIDIOC_QBUF, &buf) < 0) {
