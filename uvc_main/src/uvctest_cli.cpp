@@ -320,6 +320,13 @@ bool validate_config(AppConfig *cfg, std::string *err)
 	if (cfg->libmy_uvc_pip.pip_jpeg_quality > 100)
 		cfg->libmy_uvc_pip.pip_jpeg_quality = 100;
 
+	if (cfg->libmy_uvc_pip.pip_tile_n_tiles > 0) {
+		if (cfg->libmy_uvc_pip.pip_tile_n_tiles < 4)
+			cfg->libmy_uvc_pip.pip_tile_n_tiles = 4;
+		else if (cfg->libmy_uvc_pip.pip_tile_n_tiles > 16)
+			cfg->libmy_uvc_pip.pip_tile_n_tiles = 16;
+	}
+
 	if (cfg->libmy_uvc_pip.pip_enable) {
 		if (cfg->libmy_uvc.video_codec != "mjpeg") {
 			if (err)

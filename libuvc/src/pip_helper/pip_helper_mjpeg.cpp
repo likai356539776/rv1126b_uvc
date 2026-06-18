@@ -130,6 +130,51 @@ struct PipHelperImpl {
 	uint8_t border_y = 235;
 	uint8_t border_u = 128;
 	uint8_t border_v = 128;
+
+	int canvas_w = 0;
+	int canvas_h = 0;
+	int tile_gap_px = 0;
+	int tile_margin_px = 0;
+
+	std::array<my_uvc_pip::PipTileRect, my_uvc_pip::kPipTileLayoutMax> GetDynamicTileRects(int &na) const {
+		if (na <= 0) {
+			return {};
+		}
+		if (na > tile_n_tiles) {
+			na = tile_n_tiles;
+		}
+
+		int target_layout_size = 4;
+		if (na <= 4) {
+			target_layout_size = 4;
+		} else if (na <= 6) {
+			target_layout_size = 6;
+		} else if (na <= 8) {
+			target_layout_size = 8;
+		} else if (na <= 9) {
+			target_layout_size = 9;
+		} else {
+			target_layout_size = 16;
+		}
+
+		if (target_layout_size > tile_n_tiles) {
+			target_layout_size = tile_n_tiles;
+			if (na > target_layout_size) {
+				na = target_layout_size;
+			}
+		}
+
+		my_uvc_pip::PipTileLayoutSpec tls{};
+		tls.canvas_w = canvas_w;
+		tls.canvas_h = canvas_h;
+		tls.n_tiles = target_layout_size;
+		tls.gap_px = tile_gap_px;
+		tls.margin_px = tile_margin_px;
+
+		std::array<my_uvc_pip::PipTileRect, my_uvc_pip::kPipTileLayoutMax> tr{};
+		my_uvc_pip::pip_tile_layout_full_screen(tls, &tr);
+		return tr;
+	}
 };
 
 static bool parse_hex_color_to_yuv(const char *hex, uint8_t *y, uint8_t *u, uint8_t *v) {
@@ -279,25 +324,34 @@ extern "C" pip_helper_t *pip_helper_create(int channel_id, const pip_helper_conf
 		delete p;
 		return nullptr;
 	}
-	if (nt > 0) {
+	int clamped_nt = nt;
+	if (clamped_nt > 0) {
+		if (clamped_nt < 4) clamped_nt = 4;
+		if (clamped_nt > 16) clamped_nt = 16;
+	}
+	if (clamped_nt > 0) {
 		my_uvc_pip::PipTileLayoutSpec tls{};
 		tls.canvas_w = cfg->canvas_width;
 		tls.canvas_h = cfg->canvas_height;
-		tls.n_tiles = nt;
+		tls.n_tiles = clamped_nt;
 		tls.gap_px = cfg->pip_tile_gap_px;
 		tls.margin_px = cfg->pip_tile_margin_px;
 		std::array<my_uvc_pip::PipTileRect, my_uvc_pip::kPipTileLayoutMax> tr{};
 		const int got = my_uvc_pip::pip_tile_layout_full_screen(tls, &tr);
-		if (got != nt) {
+		if (got != clamped_nt) {
 			set_err("pip tile layout invalid for canvas");
 			delete p;
 			return nullptr;
 		}
-		p->tile_n_tiles = nt;
+		p->tile_n_tiles = clamped_nt;
 		p->tile_rects = tr;
-		p->tile_nv12_cache.resize(static_cast<size_t>(nt));
-		p->tile_last_update_ms.assign(static_cast<size_t>(nt), 0);
-		p->tile_has_valid.assign(static_cast<size_t>(nt), 0);
+		p->canvas_w = cfg->canvas_width;
+		p->canvas_h = cfg->canvas_height;
+		p->tile_gap_px = cfg->pip_tile_gap_px;
+		p->tile_margin_px = cfg->pip_tile_margin_px;
+		p->tile_nv12_cache.resize(static_cast<size_t>(clamped_nt));
+		p->tile_last_update_ms.assign(static_cast<size_t>(clamped_nt), 0);
+		p->tile_has_valid.assign(static_cast<size_t>(clamped_nt), 0);
 	}
 
 	if (!pip_hw_init(&p->hw, cfg->canvas_width, cfg->canvas_height, cfg->pip_jpeg_quality)) {
@@ -429,8 +483,7 @@ extern "C" int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_
 		return -1;
 	}
 	if (na > p->tile_n_tiles) {
-		set_err("n_active > pip_tile_n_tiles");
-		return -1;
+		na = p->tile_n_tiles;
 	}
 	if (p->tile_n_tiles == 0 && na > 0) {
 		set_err("n_active set but pip_tile_n_tiles is 0");
@@ -474,6 +527,8 @@ extern "C" int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_
 	}
 
 	const int64_t frame_now_ms = (opts && opts->now_ms != 0) ? opts->now_ms : mono_ms_now();
+
+	auto dynamic_rects = p->GetDynamicTileRects(na);
 
 	const uint8_t *ov_ptr = nullptr;
 	const size_t need = static_cast<size_t>(p->pip_ow) * static_cast<size_t>(p->pip_oh) * 3 / 2;
@@ -589,7 +644,7 @@ extern "C" int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_
 	std::vector<PipHwNv12Blit> blits;
 	blits.reserve((ov_ptr ? 1u : 0u) + static_cast<size_t>(std::max(0, na)));
 	for (int i = 0; i < na; i++) {
-		const my_uvc_pip::PipTileRect &tr = p->tile_rects[static_cast<size_t>(i)];
+		const my_uvc_pip::PipTileRect &tr = dynamic_rects[static_cast<size_t>(i)];
 		int tow = 0;
 		int toh = 0;
 		if (!my_uvc_pip::pip_tile_rect_nv12_plane_wh(tr, &tow, &toh)) {
@@ -626,6 +681,15 @@ extern "C" int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_
 				}
 				p->tile_last_update_ms[static_cast<size_t>(i)] = frame_now_ms;
 				p->tile_has_valid[static_cast<size_t>(i)] = 1;
+			} else {
+				if (static_cast<size_t>(i) < p->tile_nv12_cache.size() &&
+				    p->tile_nv12_cache[static_cast<size_t>(i)].size() != tneed) {
+					auto &cache_vec = p->tile_nv12_cache[static_cast<size_t>(i)];
+					cache_vec.resize(tneed);
+					size_t y_size = static_cast<size_t>(tow * toh);
+					std::memset(cache_vec.data(), 16, y_size);
+					std::memset(cache_vec.data() + y_size, 128, tneed - y_size);
+				}
 			}
 			blit_nv12 = my_uvc_pip::pip_presenter_overlay_ptr(
 			    p->tile_nv12_cache[static_cast<size_t>(i)], !!p->tile_has_valid[static_cast<size_t>(i)],
@@ -694,8 +758,7 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8
 		return -1;
 	}
 	if (na > p->tile_n_tiles) {
-		set_err("n_active > pip_tile_n_tiles");
-		return -1;
+		na = p->tile_n_tiles;
 	}
 	if (p->tile_n_tiles == 0 && na > 0) {
 		set_err("n_active set but pip_tile_n_tiles is 0");
@@ -739,6 +802,8 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8
 	}
 
 	const int64_t frame_now_ms = (opts && opts->now_ms != 0) ? opts->now_ms : mono_ms_now();
+
+	auto dynamic_rects = p->GetDynamicTileRects(na);
 
 	const uint8_t *ov_ptr = nullptr;
 	const size_t need = static_cast<size_t>(p->pip_ow) * static_cast<size_t>(p->pip_oh) * 3 / 2;
@@ -848,7 +913,7 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8
 	std::vector<PipHwNv12Blit> blits;
 	blits.reserve((ov_ptr ? 1u : 0u) + static_cast<size_t>(std::max(0, na)));
 	for (int i = 0; i < na; i++) {
-		const my_uvc_pip::PipTileRect &tr = p->tile_rects[static_cast<size_t>(i)];
+		const my_uvc_pip::PipTileRect &tr = dynamic_rects[static_cast<size_t>(i)];
 		int tow = 0;
 		int toh = 0;
 		if (!my_uvc_pip::pip_tile_rect_nv12_plane_wh(tr, &tow, &toh)) {
@@ -885,6 +950,15 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8
 				}
 				p->tile_last_update_ms[static_cast<size_t>(i)] = frame_now_ms;
 				p->tile_has_valid[static_cast<size_t>(i)] = 1;
+			} else {
+				if (static_cast<size_t>(i) < p->tile_nv12_cache.size() &&
+				    p->tile_nv12_cache[static_cast<size_t>(i)].size() != tneed) {
+					auto &cache_vec = p->tile_nv12_cache[static_cast<size_t>(i)];
+					cache_vec.resize(tneed);
+					size_t y_size = static_cast<size_t>(tow * toh);
+					std::memset(cache_vec.data(), 16, y_size);
+					std::memset(cache_vec.data() + y_size, 128, tneed - y_size);
+				}
 			}
 			blit_nv12 = my_uvc_pip::pip_presenter_overlay_ptr(
 			    p->tile_nv12_cache[static_cast<size_t>(i)], !!p->tile_has_valid[static_cast<size_t>(i)],

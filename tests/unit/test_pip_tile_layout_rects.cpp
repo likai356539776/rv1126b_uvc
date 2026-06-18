@@ -87,5 +87,26 @@ int main()
 			return 1;
 	}
 
+	/* Test pip_tile_layout_full_screen */
+	using my_uvc_pip::pip_tile_layout_full_screen;
+	{
+		std::array<PipTileRect, kPipTileLayoutMax> fs_r{};
+		// 4 tiles: 1x4
+		if (pip_tile_layout_full_screen(PipTileLayoutSpec{1920, 1080, 4, 10, 5}, &fs_r) != 4)
+			return 1;
+		// 6 tiles: 2x3
+		if (pip_tile_layout_full_screen(PipTileLayoutSpec{1920, 1080, 6, 10, 5}, &fs_r) != 6)
+			return 1;
+		// 8 tiles: 2x4
+		if (pip_tile_layout_full_screen(PipTileLayoutSpec{1920, 1080, 8, 10, 5}, &fs_r) != 8)
+			return 1;
+		// 9 tiles: 3x3
+		if (pip_tile_layout_full_screen(PipTileLayoutSpec{1920, 1080, 9, 10, 5}, &fs_r) != 9)
+			return 1;
+		// 16 tiles: 4x4
+		if (pip_tile_layout_full_screen(PipTileLayoutSpec{1920, 1080, 16, 10, 5}, &fs_r) != 16)
+			return 1;
+	}
+
 	return 0;
 }

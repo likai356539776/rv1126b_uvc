@@ -132,46 +132,28 @@ inline int pip_tile_layout_full_screen(const PipTileLayoutSpec &spec,
 	if (spec.gap_px < 0 || spec.margin_px < 0)
 		return -1;
 
+	int R = 1, C = 4;
+	if (n <= 4) { R = 1; C = 4; }
+	else if (n <= 6) { R = 2; C = 3; }
+	else if (n <= 8) { R = 2; C = 4; }
+	else if (n <= 9) { R = 3; C = 3; }
+	else { R = 4; C = 4; }
+
 	const int m = spec.margin_px;
 	const int g = spec.gap_px;
+	const int tile_h = (spec.canvas_h - 2 * m - (R - 1) * g) / R;
+	const int tile_w = (spec.canvas_w - 2 * m - (C - 1) * g) / C;
 
-	if (n <= 4) {
-		const int inner_w = spec.canvas_w - 2 * m;
-		if (inner_w <= 0)
-			return -1;
-		const int tw = (inner_w - (n - 1) * g) / n;
-		if (tw <= 0)
-			return -1;
-		const int tile_h = spec.canvas_h - 2 * m;
-		if (tile_h <= 0)
-			return -1;
-		for (int i = 0; i < n; i++) {
-			(*out)[static_cast<size_t>(i)] = PipTileRect{m + i * (tw + g), m, tw, tile_h};
+	int idx = 0;
+	for (int r = 0; r < R; r++) {
+		int y = m + r * (tile_h + g);
+		for (int c = 0; c < C; c++) {
+			int x = m + c * (tile_w + g);
+			if (idx < n) {
+				(*out)[static_cast<size_t>(idx)] = PipTileRect{x, y, tile_w, tile_h};
+				idx++;
+			}
 		}
-		return n;
-	}
-
-	const int n0 = (n + 1) / 2;
-	const int n1 = n - n0;
-	const int inner_h = spec.canvas_h - 2 * m - g;
-	const int row_h = inner_h / 2;
-	if (row_h <= 0)
-		return -1;
-
-	const int inner_w = spec.canvas_w - 2 * m;
-	const int tw0 = (inner_w - (n0 - 1) * g) / n0;
-	if (tw0 <= 0)
-		return -1;
-	for (int i = 0; i < n0; i++) {
-		(*out)[static_cast<size_t>(i)] = PipTileRect{m + i * (tw0 + g), m, tw0, row_h};
-	}
-
-	const int tw1 = (inner_w - (n1 - 1) * g) / n1;
-	if (tw1 <= 0)
-		return -1;
-	const int y1 = m + row_h + g;
-	for (int i = 0; i < n1; i++) {
-		(*out)[static_cast<size_t>(static_cast<size_t>(n0) + i)] = PipTileRect{m + i * (tw1 + g), y1, tw1, row_h};
 	}
 	return n;
 }
