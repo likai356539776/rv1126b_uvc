@@ -190,7 +190,7 @@ int CameraV4l2RgbReader::ReadNextRgbInto(image_buffer_t* out, int timeout_ms) {
 		APP_LOGE("v4l2_camera: poll failed: %s\n", strerror(errno));
 		return -1;
 	} else if (r == 0) {
-		return -1; // timeout
+		return -2; // timeout
 	}
 
 	v4l2_buffer buf{};

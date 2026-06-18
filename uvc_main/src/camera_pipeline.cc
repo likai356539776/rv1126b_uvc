@@ -91,9 +91,41 @@ void CameraPipeline::RunLoop(const std::atomic<bool>& shutdown_flag) {
 	while (is_running_.load() && !shutdown_flag.load()) {
 		int read_r = camera_reader_->ReadNextRgbInto(&camera_rgb_img, 1000);
 		if (read_r != 0) {
-			APP_LOGE("camera_pipeline: ReadNextRgbInto failed, ret=%d\n", read_r);
-			std::this_thread::sleep_for(std::chrono::milliseconds(30));
-			continue;
+			if (read_r == -2) {
+				// Normal timeout, sleep 30ms and retry
+				std::this_thread::sleep_for(std::chrono::milliseconds(30));
+				continue;
+			}
+			APP_LOGE("camera_pipeline: ReadNextRgbInto failed, ret=%d. Device may be disconnected.\n", read_r);
+			if (cfg_.camera_type == "v4l2") {
+				APP_LOGI("camera_pipeline: V4L2 USB camera disconnect detected. Closing device...\n");
+				camera_reader_->Close();
+				APP_LOGI("camera_pipeline: Starting reconnection loop (retrying every 2 seconds)...\n");
+				while (is_running_.load() && !shutdown_flag.load()) {
+					std::this_thread::sleep_for(std::chrono::seconds(2));
+					if (!is_running_.load() || shutdown_flag.load()) {
+						break;
+					}
+					APP_LOGI("camera_pipeline: Attempting to reconnect to V4L2 node %s...\n", cfg_.camera_node.c_str());
+					if (camera_reader_->Open(cfg_.width, cfg_.height, cfg_.camera_node, cfg_.fps) == 0) {
+						APP_LOGI("camera_pipeline: Reconnection successful! Re-initializing buffers...\n");
+						vw = camera_reader_->width();
+						vh = camera_reader_->height();
+						raw_rgb = (size_t)vw * (size_t)vh * 3u;
+						rgb_buf.resize(raw_rgb);
+						camera_rgb_img.width = vw;
+						camera_rgb_img.height = vh;
+						camera_rgb_img.size = (int)raw_rgb;
+						camera_rgb_img.virt_addr = rgb_buf.data();
+						break;
+					}
+					APP_LOGE("camera_pipeline: Reconnect attempt failed.\n");
+				}
+				continue;
+			} else {
+				std::this_thread::sleep_for(std::chrono::milliseconds(30));
+				continue;
+			}
 		}
 
 		frame_idx = camera_reader_->frame_index();
