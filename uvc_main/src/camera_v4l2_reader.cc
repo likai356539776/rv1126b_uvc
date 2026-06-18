@@ -17,6 +17,36 @@ CameraV4l2RgbReader::~CameraV4l2RgbReader() {
 	Close();
 }
 
+static void LogCameraCapabilities(int fd, const std::string& node) {
+	v4l2_fmtdesc fmtdesc{};
+	fmtdesc.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	fmtdesc.index = 0;
+
+	APP_LOGI("v4l2_camera: Probing capabilities for %s:\n", node.c_str());
+	while (ioctl(fd, VIDIOC_ENUM_FMT, &fmtdesc) == 0) {
+		char fourcc_str[5] = {0};
+		std::memcpy(fourcc_str, &fmtdesc.pixelformat, 4);
+		APP_LOGI("  Format [%d]: %s (%s)\n", fmtdesc.index, fourcc_str, fmtdesc.description);
+
+		v4l2_frmsizeenum frmsize{};
+		frmsize.pixel_format = fmtdesc.pixelformat;
+		frmsize.index = 0;
+		while (ioctl(fd, VIDIOC_ENUM_FRAMESIZES, &frmsize) == 0) {
+			if (frmsize.type == V4L2_FRMSIZE_TYPE_DISCRETE) {
+				APP_LOGI("    Resolution [%d]: %dx%d\n", frmsize.index, frmsize.discrete.width, frmsize.discrete.height);
+			} else if (frmsize.type == V4L2_FRMSIZE_TYPE_STEPWISE) {
+				APP_LOGI("    Resolution [%d]: %dx%d to %dx%d (step %dx%d)\n",
+				         frmsize.index,
+				         frmsize.stepwise.min_width, frmsize.stepwise.min_height,
+				         frmsize.stepwise.max_width, frmsize.stepwise.max_height,
+				         frmsize.stepwise.step_width, frmsize.stepwise.step_height);
+			}
+			frmsize.index++;
+		}
+		fmtdesc.index++;
+	}
+}
+
 int CameraV4l2RgbReader::Open(int width, int height, const std::string& node, int fps) {
 	std::lock_guard<std::mutex> lock(mutex_);
 	Close();
@@ -48,6 +78,8 @@ int CameraV4l2RgbReader::Open(int width, int height, const std::string& node, in
 		Close();
 		return -1;
 	}
+
+	LogCameraCapabilities(fd_, node_);
 
 	v4l2_format fmt{};
 	fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
