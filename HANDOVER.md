@@ -2,7 +2,7 @@
 
 ## 1) 当前状态（精简）
 
-- 项目路径：`/home/kama/workspace/ubuntu20.04/uvc_sigle/my_uvc`
+- 项目路径：`/home/kama/workspace/ubuntu20.04/uvc_pip`
 - 目标平台：RV1126B (aarch64)
 - 当前分支：`PicInPic`
 - 最近提交：`dd25558`  
