@@ -45,6 +45,7 @@ struct LibmyUvcPipIniFields {
 	int pip_tile_gap_px;
 	int pip_tile_margin_px;
 	float pip_width_stretch_factor;
+	/** Adaptive presenter window size factors relative to UVC output (canvas) resolution */
 	float pip_adaptive_scale_w;
 	float pip_adaptive_scale_h;
 	bool pip_border_enable;
