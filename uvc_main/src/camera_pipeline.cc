@@ -149,15 +149,18 @@ void CameraPipeline::RunLoop(const std::atomic<bool>& shutdown_flag) {
 		}
 
 
-		if (frame_idx % 30 == 0) {
+		if (frame_idx < 300 && frame_idx % 30 == 0) {
 			long long non_zero_pixels = 0;
-			for (size_t i = 0; i < raw_rgb; i++) {
+			size_t sample_step = 256;
+			size_t sampled_count = 0;
+			for (size_t i = 0; i < raw_rgb; i += sample_step) {
 				if (rgb_buf[i] != 0) {
 					non_zero_pixels++;
 				}
+				sampled_count++;
 			}
-			double non_zero_ratio = (double)non_zero_pixels / raw_rgb;
-			APP_LOGI("camera_pipeline: frame_idx=%lld, RGB non-zero ratio=%.2f%%, detected %d objects, %d persons\n",
+			double non_zero_ratio = sampled_count > 0 ? (double)non_zero_pixels / sampled_count : 0.0;
+			APP_LOGI("camera_pipeline: frame_idx=%lld, RGB non-zero ratio (sampled)=%.2f%%, detected %d objects, %d persons\n",
 			         frame_idx, non_zero_ratio * 100.0, od_results.count, (int)persons.size());
 			for (int i = 0; i < od_results.count; i++) {
 				APP_LOGI("  obj[%d]: class=%d, name=%s, score=%.2f, box=[%d,%d,%d,%d]\n",

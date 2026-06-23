@@ -17,6 +17,7 @@
 #include <string.h>
 #include <math.h>
 
+#include <vector>
 #include "yolov8.h"
 #include "common.h"
 #include "file_utils.h"
@@ -183,12 +184,12 @@ int inference_yolov8_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     dst_img.height = app_ctx->model_height;
     dst_img.format = IMAGE_FORMAT_RGB888;
     dst_img.size = get_image_size(&dst_img);
-    dst_img.virt_addr = (unsigned char *)malloc(dst_img.size);
-    if (dst_img.virt_addr == NULL)
+    thread_local std::vector<uint8_t> cached_dst_buf;
+    if (cached_dst_buf.size() < (size_t)dst_img.size)
     {
-        APP_LOGE("malloc buffer size:%d fail!\n", dst_img.size);
-        return -1;
+        cached_dst_buf.resize(dst_img.size);
     }
+    dst_img.virt_addr = cached_dst_buf.data();
 
     // letterbox
     ret = convert_image_with_letterbox(img, &dst_img, &letter_box, bg_color);
@@ -242,10 +243,5 @@ int inference_yolov8_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
     rknn_outputs_release(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs);
 
 out:
-    if (dst_img.virt_addr != NULL)
-    {
-        free(dst_img.virt_addr);
-    }
-
     return ret;
 }

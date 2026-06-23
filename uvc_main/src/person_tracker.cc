@@ -7,6 +7,30 @@
 #include <cstring>
 #include "app_log.h"
 
+namespace {
+void nv12_crop_cpu(const uint8_t* src, int src_w, int src_h, int crop_x, int crop_y, uint8_t* dst, int crop_w, int crop_h) {
+	// Crop Y plane
+	const uint8_t* src_y = src;
+	uint8_t* dst_y = dst;
+	for (int y = 0; y < crop_h; ++y) {
+		std::memcpy(dst_y + y * crop_w, src_y + (crop_y + y) * src_w + crop_x, crop_w);
+	}
+
+	// Crop UV plane (interleaved U and V)
+	const uint8_t* src_uv = src + src_w * src_h;
+	uint8_t* dst_uv = dst + crop_w * crop_h;
+	int uv_h = crop_h / 2;
+	int src_uv_stride = src_w;
+	int dst_uv_stride = crop_w;
+	int crop_uv_y = crop_y / 2;
+	int crop_uv_x = crop_x;
+
+	for (int y = 0; y < uv_h; ++y) {
+		std::memcpy(dst_uv + y * dst_uv_stride, src_uv + (crop_uv_y + y) * src_uv_stride + crop_uv_x, crop_w);
+	}
+}
+} // namespace
+
 namespace my_app {
 
 PersonTracker::PersonTracker() {
@@ -116,13 +140,7 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 		}
 	}
 
-	// Prepare image_buffer_t for source image
-	image_buffer_t src_nv12_img{};
-	src_nv12_img.width = vw;
-	src_nv12_img.height = vh;
-	src_nv12_img.format = IMAGE_FORMAT_YUV420SP_NV12;
-	src_nv12_img.size = vw * vh * 3 / 2;
-	src_nv12_img.virt_addr = const_cast<uint8_t*>(nv12_data);
+
 
 	// Third pass: Update slots and crop active ones
 	for (size_t s = 0; s < slots_.size(); s++) {
@@ -190,17 +208,7 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 			slots_[s].crop_h = crop_h;
 			slots_[s].last_nv12.resize(crop_w * crop_h * 3 / 2);
 
-			image_buffer_t dst_nv12_img{};
-			dst_nv12_img.width = crop_w;
-			dst_nv12_img.height = crop_h;
-			dst_nv12_img.format = IMAGE_FORMAT_YUV420SP_NV12;
-			dst_nv12_img.virt_addr = slots_[s].last_nv12.data();
-			dst_nv12_img.size = crop_w * crop_h * 3 / 2;
-
-			image_rect_t dst_box{0, 0, crop_w - 1, crop_h - 1};
-			if (convert_image(&src_nv12_img, &dst_nv12_img, &crop_box, &dst_box, 0) != 0) {
-				APP_LOGE("PersonTracker: crop slot %zu failed\n", s);
-			}
+			nv12_crop_cpu(nv12_data, vw, vh, crop_box.left, crop_box.top, slots_[s].last_nv12.data(), crop_w, crop_h);
 		} else {
 			// No person matched in this frame. Check 1-second persistence timeout.
 			if (slots_[s].active) {

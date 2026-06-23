@@ -90,7 +90,9 @@ void StreamerPool::ChannelWorker(size_t index, my_uvc_t* uvc_ctx, const CameraPi
 			stats->stream_on.store(0);
 			return;
 		}
-		APP_LOGI("pip: ch=%d helper=%s (camera background mode)\n", ch.channel_id, pip_helper_version());
+		long long last_processed_frame_idx = -1;
+		const uint8_t *pip_out = nullptr;
+		size_t pip_out_len = 0;
 
 		while (is_running_.load() && !shutdown_flag.load()) {
 			int latest_video_id = my_uvc_channel_video_id(ch.channel_id);
@@ -134,70 +136,79 @@ void StreamerPool::ChannelWorker(size_t index, my_uvc_t* uvc_ctx, const CameraPi
 				continue;
 			}
 
-			pip_helper_composite_opts_t po{};
-			po.now_ms = 0;
+			bool is_duplicate = (current_frame->frame_index == last_processed_frame_idx);
 
-			if (current_frame->presenter_updated) {
-				po.presenter_nv12_updated = 1;
-				po.presenter_nv12 = current_frame->presenter_nv12.data();
-				po.presenter_nv12_src_w = current_frame->presenter_w;
-				po.presenter_nv12_src_h = current_frame->presenter_h;
-			} else {
-				po.presenter_nv12_updated = 0;
-			}
-
-			int n_active = std::min((int)current_frame->tiles.size(), ch.pip_tile_n_tiles);
-			po.n_active = n_active;
-
-			const uint8_t *tile_nv12_ptrs[my_uvc_pip::kPipTileLayoutMax];
-			int tile_src_w_arr[my_uvc_pip::kPipTileLayoutMax];
-			int tile_src_h_arr[my_uvc_pip::kPipTileLayoutMax];
-			int tile_updated_arr[my_uvc_pip::kPipTileLayoutMax];
-
-			for (int ti = 0; ti < n_active; ti++) {
-				tile_nv12_ptrs[ti] = current_frame->tiles[ti].nv12.data();
-				tile_src_w_arr[ti] = current_frame->tiles[ti].w;
-				tile_src_h_arr[ti] = current_frame->tiles[ti].h;
-				tile_updated_arr[ti] = 1;
-			}
-
-			po.tile_nv12 = tile_nv12_ptrs;
-			po.tile_src_w = tile_src_w_arr;
-			po.tile_src_h = tile_src_h_arr;
-			po.tile_nv12_updated = tile_updated_arr;
-
-			const uint8_t *pip_out = nullptr;
-			size_t pip_out_len = 0;
-			int pc = pip_helper_composite_nv12_background(
-				pip,
-				current_frame->bg_nv12.data(),
-				current_frame->bg_w,
-				current_frame->bg_h,
-				&po,
-				&pip_out,
-				&pip_out_len
-			);
-
-			if (pc != 0) {
-				stats->error_count.fetch_add(1);
-			} else {
-				static bool dumped = false;
-				if (!dumped && ch.channel_id == 0) {
-					dumped = true;
-					FILE *fp = fopen("/userdata/dump.jpg", "wb");
-					if (fp) {
-						fwrite(pip_out, 1, pip_out_len, fp);
-						fclose(fp);
-						APP_LOGI("DEBUG: dumped first frame of ch=0 to /userdata/dump.jpg, size=%zu\n", pip_out_len);
-					} else {
-						APP_LOGE("DEBUG: failed to open /userdata/dump.jpg for writing\n");
-					}
-				}
+			if (is_duplicate && pip_out && pip_out_len > 0) {
 				if (uvc_ctx) {
 					my_uvc_submit_mjpeg(uvc_ctx, ch.channel_id, pip_out, pip_out_len);
 				}
 				sent_frames++;
 				stats->total_frames.fetch_add(1);
+			} else {
+				pip_helper_composite_opts_t po{};
+				po.now_ms = 0;
+
+				if (current_frame->presenter_updated) {
+					po.presenter_nv12_updated = 1;
+					po.presenter_nv12 = current_frame->presenter_nv12.data();
+					po.presenter_nv12_src_w = current_frame->presenter_w;
+					po.presenter_nv12_src_h = current_frame->presenter_h;
+				} else {
+					po.presenter_nv12_updated = 0;
+				}
+
+				int n_active = std::min((int)current_frame->tiles.size(), ch.pip_tile_n_tiles);
+				po.n_active = n_active;
+
+				const uint8_t *tile_nv12_ptrs[my_uvc_pip::kPipTileLayoutMax];
+				int tile_src_w_arr[my_uvc_pip::kPipTileLayoutMax];
+				int tile_src_h_arr[my_uvc_pip::kPipTileLayoutMax];
+				int tile_updated_arr[my_uvc_pip::kPipTileLayoutMax];
+
+				for (int ti = 0; ti < n_active; ti++) {
+					tile_nv12_ptrs[ti] = current_frame->tiles[ti].nv12.data();
+					tile_src_w_arr[ti] = current_frame->tiles[ti].w;
+					tile_src_h_arr[ti] = current_frame->tiles[ti].h;
+					tile_updated_arr[ti] = 1;
+				}
+
+				po.tile_nv12 = tile_nv12_ptrs;
+				po.tile_src_w = tile_src_w_arr;
+				po.tile_src_h = tile_src_h_arr;
+				po.tile_nv12_updated = tile_updated_arr;
+
+				int pc = pip_helper_composite_nv12_background(
+					pip,
+					current_frame->bg_nv12.data(),
+					current_frame->bg_w,
+					current_frame->bg_h,
+					&po,
+					&pip_out,
+					&pip_out_len
+				);
+
+				if (pc != 0) {
+					stats->error_count.fetch_add(1);
+				} else {
+					static bool dumped = false;
+					if (!dumped && ch.channel_id == 0) {
+						dumped = true;
+						FILE *fp = fopen("/userdata/dump.jpg", "wb");
+						if (fp) {
+							fwrite(pip_out, 1, pip_out_len, fp);
+							fclose(fp);
+							APP_LOGI("DEBUG: dumped first frame of ch=0 to /userdata/dump.jpg, size=%zu\n", pip_out_len);
+						} else {
+							APP_LOGE("DEBUG: failed to open /userdata/dump.jpg for writing\n");
+						}
+					}
+					if (uvc_ctx) {
+						my_uvc_submit_mjpeg(uvc_ctx, ch.channel_id, pip_out, pip_out_len);
+					}
+					sent_frames++;
+					stats->total_frames.fetch_add(1);
+					last_processed_frame_idx = current_frame->frame_index;
+				}
 			}
 
 			auto now = std::chrono::steady_clock::now();
