@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include "app_log.h"
 
 extern "C" {
@@ -54,19 +55,6 @@ namespace my_app {
 
 PersonTracker::PersonTracker() {
 	slots_.resize(my_uvc_pip::kPipTileLayoutMax);
-	int crop_size = 640 * 640 * 3 / 2;
-	for (auto &slot : slots_) {
-		RK_S32 ret = RK_MPI_MMZ_Alloc((MB_BLK*)&slot.mb_blk, crop_size, 0);
-		if (ret == RK_SUCCESS) {
-			slot.fd = RK_MPI_MMZ_Handle2Fd(slot.mb_blk);
-			slot.virt_addr = RK_MPI_MB_Handle2VirAddr(slot.mb_blk);
-		} else {
-			APP_LOGE("[PersonTracker] MMZ Alloc failed for slot! ret=0x%x\n", ret);
-			slot.mb_blk = nullptr;
-			slot.fd = -1;
-			slot.virt_addr = nullptr;
-		}
-	}
 }
 
 PersonTracker::~PersonTracker() {
@@ -74,6 +62,9 @@ PersonTracker::~PersonTracker() {
 		if (slot.mb_blk) {
 			RK_MPI_MMZ_Free(slot.mb_blk);
 			slot.mb_blk = nullptr;
+		} else if (slot.virt_addr) {
+			std::free(slot.virt_addr);
+			slot.virt_addr = nullptr;
 		}
 	}
 }
@@ -116,6 +107,31 @@ void PersonTracker::GetAlignedCropBoxCentered(int src_w, int src_h, int cx, int 
 
 void PersonTracker::Update(const std::vector<object_detect_result>& persons,
                            const ZeroCopyFrame& frame, int64_t now_ms, int max_tiles) {
+	// Lazy allocation of slot buffers
+	int crop_size = 640 * 640 * 3 / 2;
+	if (frame.ch0_fd != -1) {
+		for (auto &slot : slots_) {
+			if (!slot.mb_blk) {
+				RK_S32 ret = RK_MPI_MMZ_Alloc((MB_BLK*)&slot.mb_blk, crop_size, 0);
+				if (ret == RK_SUCCESS) {
+					slot.fd = RK_MPI_MMZ_Handle2Fd(slot.mb_blk);
+					slot.virt_addr = RK_MPI_MB_Handle2VirAddr(slot.mb_blk);
+				} else {
+					APP_LOGE("[PersonTracker] MMZ Alloc failed for slot! ret=0x%x\n", ret);
+					slot.mb_blk = nullptr;
+					slot.fd = -1;
+					slot.virt_addr = nullptr;
+				}
+			}
+		}
+	} else {
+		for (auto &slot : slots_) {
+			if (!slot.virt_addr) {
+				slot.virt_addr = std::malloc(crop_size);
+			}
+		}
+	}
+
 	int P = (int)persons.size();
 
 	double scale_x = (frame.ch1_w > 0) ? (double)frame.ch0_w / frame.ch1_w : 1.0;
