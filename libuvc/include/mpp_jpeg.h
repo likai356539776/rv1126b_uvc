@@ -25,6 +25,7 @@ struct PipBorderConfig {
  */
 struct PipHwNv12Blit {
 	const uint8_t *nv12;
+	int fd;
 	int dst_w, dst_h;
 	int ox, oy;
 	int src_w, src_h;
@@ -41,7 +42,7 @@ bool pip_hw_composite_layers(PipHwContext *ctx,
                              std::vector<uint8_t> *out_jpeg);
 
 bool pip_hw_composite_layers_nv12(PipHwContext *ctx,
-                                  const uint8_t *bg_nv12, int bg_w, int bg_h,
+                                  int bg_fd, int bg_w, int bg_h,
                                   const PipHwNv12Blit *blits, int n_blits,
                                   const PipBorderConfig *bc,
                                   std::vector<uint8_t> *out_jpeg);

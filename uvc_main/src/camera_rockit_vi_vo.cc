@@ -14,6 +14,17 @@ extern "C" {
 #include "rk_mpi_vpss.h"
 #include "rk_comm_vi.h"
 #include "rk_comm_video.h"
+#include "rk_mpi_mmz.h"
+}
+
+#include <rga/im2d_type.h>
+#include <rga/rga.h>
+
+extern "C" {
+rga_buffer_t wrapbuffer_fd_t(int fd, int width, int height,
+                             int wstride, int hstride, int format);
+IM_STATUS imresize_t(const rga_buffer_t src, rga_buffer_t dst,
+                     double fx, double fy, int interpolation, int sync);
 }
 
 namespace my_app {
@@ -230,11 +241,31 @@ int CameraRockitRgbReader::VpssInitBindPath() {
     return -1;
   }
 
+  VPSS_CHN_ATTR_S chn_yolo{};
+  fill_vpss_chn_attr(&chn_yolo, (RK_U32)yolo_w_, (RK_U32)yolo_h_, 8u, 2u, cfg_.camera_mirror);
+  ret = RK_MPI_VPSS_SetChnAttr(g, 2, &chn_yolo);
+  if (ret != RK_SUCCESS) {
+    APP_LOGE("rockit: VPSS SetChnAttr yolo chn fail 0x%x\n", ret);
+    RK_MPI_VPSS_DisableChn(g, cfg_.vpss_chn_algo);
+    RK_MPI_VPSS_DisableChn(g, cfg_.vpss_chn_vo);
+    RK_MPI_VPSS_DestroyGrp(g);
+    return -1;
+  }
+  ret = RK_MPI_VPSS_EnableChn(g, 2);
+  if (ret != RK_SUCCESS) {
+    APP_LOGE("rockit: VPSS EnableChn yolo fail 0x%x\n", ret);
+    RK_MPI_VPSS_DisableChn(g, cfg_.vpss_chn_algo);
+    RK_MPI_VPSS_DisableChn(g, cfg_.vpss_chn_vo);
+    RK_MPI_VPSS_DestroyGrp(g);
+    return -1;
+  }
+
   ret = RK_MPI_VPSS_StartGrp(g);
   if (ret != RK_SUCCESS) {
     APP_LOGE("rockit: RK_MPI_VPSS_StartGrp fail 0x%x\n", ret);
     RK_MPI_VPSS_DisableChn(g, cfg_.vpss_chn_algo);
     RK_MPI_VPSS_DisableChn(g, cfg_.vpss_chn_vo);
+    RK_MPI_VPSS_DisableChn(g, 2);
     RK_MPI_VPSS_DestroyGrp(g);
     return -1;
   }
@@ -278,6 +309,7 @@ void CameraRockitRgbReader::VpssDeinit() {
   RK_MPI_VPSS_StopGrp(g);
   RK_MPI_VPSS_DisableChn(g, cfg_.vpss_chn_vo);
   RK_MPI_VPSS_DisableChn(g, cfg_.vpss_chn_algo);
+  RK_MPI_VPSS_DisableChn(g, 2);
   RK_MPI_VPSS_DestroyGrp(g);
   vpss_inited_ = false;
 }
@@ -612,6 +644,19 @@ int CameraRockitRgbReader::Open(const RockitCameraConfig& cfg) {
 
   APP_LOGI("rockit: capture %dx%d vo=%d bind_pipeline=%d\n", width_, height_, cfg_.vo_enable ? 1 : 0,
            bind_vo_pipeline_ ? 1 : 0);
+
+  // Allocate MMZ buffer for YOLO RGB888 input
+  int yolo_size = yolo_w_ * yolo_h_ * 3;
+  RK_S32 mret = RK_MPI_MMZ_Alloc((MB_BLK*)&zero_copy_mb_, yolo_size, 0);
+  if (mret == RK_SUCCESS) {
+    zero_copy_fd_ = RK_MPI_MMZ_Handle2Fd(zero_copy_mb_);
+    zero_copy_virt_ = RK_MPI_MB_Handle2VirAddr(zero_copy_mb_);
+  } else {
+    APP_LOGE("rockit: RK_MPI_MMZ_Alloc fail for YOLO buffer 0x%x\n", mret);
+    ShutdownSubsystem();
+    return -1;
+  }
+
   return 0;
 }
 
@@ -640,6 +685,13 @@ void CameraRockitRgbReader::ShutdownSubsystem() {
   nv12_tight_.clear();
   width_ = height_ = fps_ = 0;
   frame_index_ = 0;
+
+  if (zero_copy_mb_) {
+    RK_MPI_MMZ_Free(zero_copy_mb_);
+    zero_copy_mb_ = nullptr;
+    zero_copy_fd_ = -1;
+    zero_copy_virt_ = nullptr;
+  }
 }
 
 int CameraRockitRgbReader::ReadNextRgbInto(image_buffer_t* out, int timeout_ms) {
@@ -729,6 +781,94 @@ int CameraRockitRgbReader::ReadNextRgbInto(image_buffer_t* out, int timeout_ms) 
   }
   frame_index_++;
   return 0;
+}
+
+int CameraRockitRgbReader::GetZeroCopyFrame(ZeroCopyFrame* out_frame, int timeout_ms) {
+  if (!mpi_inited_ || !out_frame) {
+    return -1;
+  }
+
+  VIDEO_FRAME_INFO_S* f0 = new VIDEO_FRAME_INFO_S();
+  VIDEO_FRAME_INFO_S* f1 = new VIDEO_FRAME_INFO_S();
+  VIDEO_FRAME_INFO_S* f2 = new VIDEO_FRAME_INFO_S();
+  memset(f0, 0, sizeof(*f0));
+  memset(f1, 0, sizeof(*f1));
+  memset(f2, 0, sizeof(*f2));
+
+  const int g = cfg_.vpss_grp;
+
+  RK_S32 ret = RK_MPI_VPSS_GetChnFrame(g, cfg_.vpss_chn_algo, f0, timeout_ms);
+  if (ret != RK_SUCCESS) {
+    delete f0; delete f1; delete f2;
+    return -1;
+  }
+
+  ret = RK_MPI_VPSS_GetChnFrame(g, 2, f1, timeout_ms);
+  if (ret != RK_SUCCESS) {
+    RK_MPI_VPSS_ReleaseChnFrame(g, cfg_.vpss_chn_algo, f0);
+    delete f0; delete f1; delete f2;
+    return -1;
+  }
+
+  ret = RK_MPI_VPSS_GetChnFrame(g, cfg_.vpss_chn_vo, f2, timeout_ms);
+  if (ret != RK_SUCCESS) {
+    RK_MPI_VPSS_ReleaseChnFrame(g, cfg_.vpss_chn_algo, f0);
+    RK_MPI_VPSS_ReleaseChnFrame(g, 2, f1);
+    delete f0; delete f1; delete f2;
+    return -1;
+  }
+
+  int src_w = f1->stVFrame.u32Width;
+  int src_h = f1->stVFrame.u32Height;
+  int ch1_yuv_fd = RK_MPI_MB_Handle2Fd(f1->stVFrame.pMbBlk);
+
+  rga_buffer_t src = wrapbuffer_fd_t(ch1_yuv_fd, src_w, src_h, src_w, src_h, RK_FORMAT_YCbCr_420_SP);
+  rga_buffer_t dst = wrapbuffer_fd_t(zero_copy_fd_, yolo_w_, yolo_h_, yolo_w_, yolo_h_, RK_FORMAT_RGB_888);
+
+  imresize_t(src, dst, 0, 0, 0, 1);
+
+  out_frame->frame_index = frame_index_;
+  out_frame->ch0_fd = RK_MPI_MB_Handle2Fd(f0->stVFrame.pMbBlk);
+  out_frame->ch1_fd = zero_copy_fd_;
+  out_frame->ch2_fd = RK_MPI_MB_Handle2Fd(f2->stVFrame.pMbBlk);
+
+  out_frame->ch0_w = f0->stVFrame.u32Width;
+  out_frame->ch0_h = f0->stVFrame.u32Height;
+  out_frame->ch1_w = yolo_w_;
+  out_frame->ch1_h = yolo_h_;
+  out_frame->ch2_w = f2->stVFrame.u32Width;
+  out_frame->ch2_h = f2->stVFrame.u32Height;
+
+  out_frame->opaque_frame0 = f0;
+  out_frame->opaque_frame1 = f1;
+  out_frame->opaque_frame2 = f2;
+
+  frame_index_++;
+  return 0;
+}
+
+void CameraRockitRgbReader::ReleaseZeroCopyFrame(ZeroCopyFrame* frame) {
+  if (!frame) return;
+  const int g = cfg_.vpss_grp;
+
+  if (frame->opaque_frame0) {
+    VIDEO_FRAME_INFO_S* f0 = static_cast<VIDEO_FRAME_INFO_S*>(frame->opaque_frame0);
+    RK_MPI_VPSS_ReleaseChnFrame(g, cfg_.vpss_chn_algo, f0);
+    delete f0;
+    frame->opaque_frame0 = nullptr;
+  }
+  if (frame->opaque_frame1) {
+    VIDEO_FRAME_INFO_S* f1 = static_cast<VIDEO_FRAME_INFO_S*>(frame->opaque_frame1);
+    RK_MPI_VPSS_ReleaseChnFrame(g, 2, f1);
+    delete f1;
+    frame->opaque_frame1 = nullptr;
+  }
+  if (frame->opaque_frame2) {
+    VIDEO_FRAME_INFO_S* f2 = static_cast<VIDEO_FRAME_INFO_S*>(frame->opaque_frame2);
+    RK_MPI_VPSS_ReleaseChnFrame(g, cfg_.vpss_chn_vo, f2);
+    delete f2;
+    frame->opaque_frame2 = nullptr;
+  }
 }
 
 }  // namespace my_app

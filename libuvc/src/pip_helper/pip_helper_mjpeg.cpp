@@ -696,13 +696,13 @@ extern "C" int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_
 			    p->tile_last_update_ms[static_cast<size_t>(i)], frame_now_ms, p->stale_timeout_cfg_ms);
 		}
 		if (blit_nv12)
-			blits.push_back(PipHwNv12Blit{blit_nv12, tow, toh, tox, toy, isw, ish});
+			blits.push_back(PipHwNv12Blit{blit_nv12, -1, tow, toh, tox, toy, isw, ish});
 	}
 	if (ov_ptr) {
 		if (used_bg_for_presenter) {
-			blits.push_back(PipHwNv12Blit{ov_ptr, cur_ow, cur_oh, cur_x, cur_y, 0, 0});
+			blits.push_back(PipHwNv12Blit{ov_ptr, -1, cur_ow, cur_oh, cur_x, cur_y, 0, 0});
 		} else {
-			blits.push_back(PipHwNv12Blit{ov_ptr, p->pip_ow, p->pip_oh, p->pip_x, p->pip_y, 0, 0});
+			blits.push_back(PipHwNv12Blit{ov_ptr, -1, p->pip_ow, p->pip_oh, p->pip_x, p->pip_y, 0, 0});
 		}
 	}
 
@@ -732,12 +732,12 @@ extern "C" int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_
 	return 0;
 }
 
-extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8_t *bg_nv12, int bg_w, int bg_h,
+extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, int bg_fd, int bg_w, int bg_h,
                                                     const pip_helper_composite_opts_t *opts, const uint8_t **out_jpeg,
                                                     size_t *out_jpeg_len)
 {
 	g_err[0] = '\0';
-	if (!h || !bg_nv12 || bg_w <= 0 || bg_h <= 0 || !out_jpeg || !out_jpeg_len) {
+	if (!h || bg_w <= 0 || bg_h <= 0 || !out_jpeg || !out_jpeg_len) {
 		set_err("invalid args");
 		return -1;
 	}
@@ -749,9 +749,11 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8
 
 	int na = 0;
 	const uint8_t **tnv = nullptr;
+	const int *tfds = nullptr;
 	if (opts) {
 		na = opts->n_active;
 		tnv = opts->tile_nv12;
+		tfds = opts->tile_fds;
 	}
 	if (na < 0) {
 		set_err("n_active negative");
@@ -764,22 +766,22 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8
 		set_err("n_active set but pip_tile_n_tiles is 0");
 		return -1;
 	}
-	if (na > 0 && !tnv) {
-		set_err("tile_nv12 required when n_active > 0");
+	if (na > 0 && !tnv && !tfds) {
+		set_err("tile data required when n_active > 0");
 		return -1;
 	}
 	const int *tile_upd = (opts && opts->tile_nv12_updated) ? opts->tile_nv12_updated : nullptr;
 	if (!tile_upd) {
 		for (int i = 0; i < na; i++) {
-			if (!tnv[i]) {
-				set_err("tile_nv12[%d] is null", i);
+			if ((!tnv || !tnv[i]) && (!tfds || tfds[i] < 0)) {
+				set_err("tile %d is empty (no nv12 and no fd)", i);
 				return -1;
 			}
 		}
 	} else {
 		for (int i = 0; i < na; i++) {
-			if (tile_upd[i] && !tnv[i]) {
-				set_err("tile_nv12_updated[%d] without tile_nv12", i);
+			if (tile_upd[i] && (!tnv || !tnv[i]) && (!tfds || tfds[i] < 0)) {
+				set_err("tile_updated[%d] without tile nv12 or fd", i);
 				return -1;
 			}
 		}
@@ -806,83 +808,69 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8
 	auto dynamic_rects = p->GetDynamicTileRects(na);
 
 	const uint8_t *ov_ptr = nullptr;
-	const size_t need = static_cast<size_t>(p->pip_ow) * static_cast<size_t>(p->pip_oh) * 3 / 2;
-
-	bool used_bg_for_presenter = false;
+	int ov_fd = -1;
 	int cur_ow = p->pip_ow;
 	int cur_oh = p->pip_oh;
 	int cur_x = p->pip_x;
 	int cur_y = p->pip_y;
 
-	if (bg_nv12 && bg_w > 0 && bg_h > 0) {
-		double scale = std::min(static_cast<double>(p->pip_ow) / bg_w, static_cast<double>(p->pip_oh) / bg_h);
-		int cur_h = static_cast<int>(bg_h * scale);
-		int cur_w = static_cast<int>(bg_w * scale * p->pip_width_stretch_factor);
-		if (cur_w > p->pip_ow) {
-			cur_w = p->pip_ow;
-		}
-		cur_ow = (cur_w / 16) * 16;
-		cur_oh = (cur_h / 2) * 2;
-		if (cur_ow <= 0) cur_ow = 16;
-		if (cur_oh <= 0) cur_oh = 2;
-		cur_x = (p->pip_x + (p->pip_ow - cur_ow) / 2) & ~1;
-		cur_y = p->pip_y + (p->pip_oh - cur_oh);
-
-		const size_t cur_need = static_cast<size_t>(cur_ow) * static_cast<size_t>(cur_oh) * 3 / 2;
-		if (p->overlay_nv12_single.size() != cur_need) {
-			p->overlay_nv12_single.resize(cur_need);
-		}
-		if (pip_hw_nv12_resize_virtual(bg_nv12, bg_w, bg_h, p->overlay_nv12_single.data(), cur_ow, cur_oh)) {
-			ov_ptr = p->overlay_nv12_single.data();
-			used_bg_for_presenter = true;
-		}
-	}
+	bool used_bg_for_presenter = false;
 
 	if (!used_bg_for_presenter) {
 		if (opts && opts->presenter_nv12_updated) {
-			if (!opts->presenter_nv12) {
-				set_err("presenter_nv12_updated without presenter_nv12");
-				return -1;
-			}
-			const int psw = opts->presenter_nv12_src_w;
-			const int psh = opts->presenter_nv12_src_h;
-			if ((psw > 0) != (psh > 0)) {
-				set_err("presenter_nv12_src_w/h must both be 0 or both >0");
-				return -1;
-			}
-			if (psw > 0 && psh > 0) {
-				double scale = std::min(static_cast<double>(p->pip_ow) / psw, static_cast<double>(p->pip_oh) / psh);
-				int cur_h = static_cast<int>(psh * scale);
-				int cur_w = static_cast<int>(psw * scale * p->pip_width_stretch_factor);
-				if (cur_w > p->pip_ow) {
-					cur_w = p->pip_ow;
+			if (opts->presenter_fd >= 0) {
+				ov_fd = opts->presenter_fd;
+				const int psw = opts->presenter_nv12_src_w;
+				const int psh = opts->presenter_nv12_src_h;
+				if (psw > 0 && psh > 0) {
+					double scale = std::min(static_cast<double>(p->pip_ow) / psw, static_cast<double>(p->pip_oh) / psh);
+					int cur_h = static_cast<int>(psh * scale);
+					int cur_w = static_cast<int>(psw * scale * p->pip_width_stretch_factor);
+					if (cur_w > p->pip_ow) {
+						cur_w = p->pip_ow;
+					}
+					cur_ow = (cur_w / 16) * 16;
+					cur_oh = (cur_h / 2) * 2;
+					if (cur_ow <= 0) cur_ow = 16;
+					if (cur_oh <= 0) cur_oh = 2;
+					cur_x = (p->pip_x + (p->pip_ow - cur_ow) / 2) & ~1;
+					cur_y = p->pip_y + (p->pip_oh - cur_oh);
 				}
-				cur_ow = (cur_w / 16) * 16;
-				cur_oh = (cur_h / 2) * 2;
-				if (cur_ow <= 0) cur_ow = 16;
-				if (cur_oh <= 0) cur_oh = 2;
-				cur_x = (p->pip_x + (p->pip_ow - cur_ow) / 2) & ~1;
-				cur_y = p->pip_y + (p->pip_oh - cur_oh);
+				p->presenter_last_update_ms = frame_now_ms;
+				p->presenter_has_valid = true;
+			} else if (opts->presenter_nv12) {
+				const int psw = opts->presenter_nv12_src_w;
+				const int psh = opts->presenter_nv12_src_h;
+				if (psw > 0 && psh > 0) {
+					double scale = std::min(static_cast<double>(p->pip_ow) / psw, static_cast<double>(p->pip_oh) / psh);
+					int cur_h = static_cast<int>(psh * scale);
+					int cur_w = static_cast<int>(psw * scale * p->pip_width_stretch_factor);
+					if (cur_w > p->pip_ow) {
+						cur_w = p->pip_ow;
+					}
+					cur_ow = (cur_w / 16) * 16;
+					cur_oh = (cur_h / 2) * 2;
+					if (cur_ow <= 0) cur_ow = 16;
+					if (cur_oh <= 0) cur_oh = 2;
+					cur_x = (p->pip_x + (p->pip_ow - cur_ow) / 2) & ~1;
+					cur_y = p->pip_y + (p->pip_oh - cur_oh);
 
-				const size_t cur_need = static_cast<size_t>(cur_ow) * static_cast<size_t>(cur_oh) * 3 / 2;
-				if (p->overlay_nv12_single.size() != cur_need) {
-					p->overlay_nv12_single.resize(cur_need);
+					const size_t cur_need = static_cast<size_t>(cur_ow) * static_cast<size_t>(cur_oh) * 3 / 2;
+					if (p->overlay_nv12_single.size() != cur_need) {
+						p->overlay_nv12_single.resize(cur_need);
+					}
+					pip_hw_nv12_resize_virtual(opts->presenter_nv12, psw, psh, p->overlay_nv12_single.data(), cur_ow, cur_oh);
+				} else {
+					const size_t need = static_cast<size_t>(p->pip_ow) * static_cast<size_t>(p->pip_oh) * 3 / 2;
+					if (p->overlay_nv12_single.size() != need) {
+						p->overlay_nv12_single.resize(need);
+					}
+					std::memcpy(p->overlay_nv12_single.data(), opts->presenter_nv12, need);
 				}
-				if (!pip_hw_nv12_resize_virtual(opts->presenter_nv12, psw, psh, p->overlay_nv12_single.data(),
-				                                cur_ow, cur_oh)) {
-					set_err("presenter_nv12 resize failed");
-					return -1;
-				}
-				used_bg_for_presenter = true;
-			} else {
-				if (p->overlay_nv12_single.size() != need) {
-					p->overlay_nv12_single.resize(need);
-				}
-				std::memcpy(p->overlay_nv12_single.data(), opts->presenter_nv12, need);
+				p->presenter_last_update_ms = frame_now_ms;
+				p->presenter_has_valid = true;
+				ov_ptr = p->overlay_nv12_single.data();
 			}
-			p->presenter_last_update_ms = frame_now_ms;
-			p->presenter_has_valid = true;
-			ov_ptr = p->overlay_nv12_single.data();
 		} else {
 			if (p->presenter_preloaded_jpeg) {
 				p->presenter_last_update_ms = frame_now_ms;
@@ -896,22 +884,18 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8
 
 			if (!ov_ptr && p->overlay_dir_lazy) {
 				const size_t n = p->overlay_src_paths.size();
-				if (n == 0) {
-					set_err("overlay dir empty");
-					return -1;
+				if (n > 0) {
+					const size_t dir_slot = p->overlay_idx % n;
+					if (ensure_overlay_dir_slot(p, dir_slot)) {
+						ov_ptr = p->overlay_nv12_cache[dir_slot].data();
+					}
 				}
-				const size_t dir_slot = p->overlay_idx % n;
-				if (!ensure_overlay_dir_slot(p, dir_slot)) {
-					set_err("overlay slot decode failed");
-					return -1;
-				}
-				ov_ptr = p->overlay_nv12_cache[dir_slot].data();
 			}
 		}
 	}
 
 	std::vector<PipHwNv12Blit> blits;
-	blits.reserve((ov_ptr ? 1u : 0u) + static_cast<size_t>(std::max(0, na)));
+	blits.reserve((ov_ptr || ov_fd >= 0 ? 1u : 0u) + static_cast<size_t>(std::max(0, na)));
 	for (int i = 0; i < na; i++) {
 		const my_uvc_pip::PipTileRect &tr = dynamic_rects[static_cast<size_t>(i)];
 		int tow = 0;
@@ -922,57 +906,94 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8
 		}
 		const int tox = (tr.x + 1) & ~1;
 		const int toy = (tr.y + 1) & ~1;
-		const size_t tneed = static_cast<size_t>(tow) * static_cast<size_t>(toh) * 3 / 2;
+
+		int t_fd = tfds ? tfds[i] : -1;
 		const uint8_t *blit_nv12 = nullptr;
 		int isw = 0;
 		int ish = 0;
-		if (!tile_upd) {
-			blit_nv12 = tnv[i];
-			if (tile_sw && tile_sh && tile_sw[i] > 0 && tile_sh[i] > 0) {
-				isw = tile_sw[i];
-				ish = tile_sh[i];
-			}
+
+		if (t_fd >= 0) {
+			isw = (tile_sw && tile_sw[i] > 0) ? tile_sw[i] : tow;
+			ish = (tile_sh && tile_sh[i] > 0) ? tile_sh[i] : toh;
+			PipHwNv12Blit tb{};
+			tb.nv12 = nullptr;
+			tb.fd = t_fd;
+			tb.dst_w = tow;
+			tb.dst_h = toh;
+			tb.ox = tox;
+			tb.oy = toy;
+			tb.src_w = isw;
+			tb.src_h = ish;
+			blits.push_back(tb);
 		} else {
-			if (tile_upd[i]) {
-				if (static_cast<size_t>(i) >= p->tile_nv12_cache.size()) {
-					set_err("tile cache not initialized");
-					return -1;
-				}
-				p->tile_nv12_cache[static_cast<size_t>(i)].resize(tneed);
+			if (!tile_upd) {
+				blit_nv12 = tnv[i];
 				if (tile_sw && tile_sh && tile_sw[i] > 0 && tile_sh[i] > 0) {
-					if (!pip_hw_nv12_resize_virtual(tnv[i], tile_sw[i], tile_sh[i],
-					                                p->tile_nv12_cache[static_cast<size_t>(i)].data(), tow, toh)) {
-						set_err("tile %d nv12 resize failed", i);
-						return -1;
-					}
-				} else {
-					std::memcpy(p->tile_nv12_cache[static_cast<size_t>(i)].data(), tnv[i], tneed);
+					isw = tile_sw[i];
+					ish = tile_sh[i];
 				}
-				p->tile_last_update_ms[static_cast<size_t>(i)] = frame_now_ms;
-				p->tile_has_valid[static_cast<size_t>(i)] = 1;
 			} else {
-				if (static_cast<size_t>(i) < p->tile_nv12_cache.size() &&
-				    p->tile_nv12_cache[static_cast<size_t>(i)].size() != tneed) {
-					auto &cache_vec = p->tile_nv12_cache[static_cast<size_t>(i)];
-					cache_vec.resize(tneed);
-					size_t y_size = static_cast<size_t>(tow * toh);
-					std::memset(cache_vec.data(), 16, y_size);
-					std::memset(cache_vec.data() + y_size, 128, tneed - y_size);
+				const size_t tneed = static_cast<size_t>(tow) * static_cast<size_t>(toh) * 3 / 2;
+				if (tile_upd[i]) {
+					p->tile_nv12_cache[static_cast<size_t>(i)].resize(tneed);
+					if (tile_sw && tile_sh && tile_sw[i] > 0 && tile_sh[i] > 0) {
+						pip_hw_nv12_resize_virtual(tnv[i], tile_sw[i], tile_sh[i],
+						                            p->tile_nv12_cache[static_cast<size_t>(i)].data(), tow, toh);
+					} else {
+						std::memcpy(p->tile_nv12_cache[static_cast<size_t>(i)].data(), tnv[i], tneed);
+					}
+					p->tile_last_update_ms[static_cast<size_t>(i)] = frame_now_ms;
+					p->tile_has_valid[static_cast<size_t>(i)] = 1;
+				} else {
+					if (p->tile_nv12_cache[static_cast<size_t>(i)].size() != tneed) {
+						auto &cache_vec = p->tile_nv12_cache[static_cast<size_t>(i)];
+						cache_vec.resize(tneed);
+						size_t y_size = static_cast<size_t>(tow * toh);
+						std::memset(cache_vec.data(), 16, y_size);
+						std::memset(cache_vec.data() + y_size, 128, tneed - y_size);
+					}
 				}
+				blit_nv12 = my_uvc_pip::pip_presenter_overlay_ptr(
+				    p->tile_nv12_cache[static_cast<size_t>(i)], !!p->tile_has_valid[static_cast<size_t>(i)],
+				    p->tile_last_update_ms[static_cast<size_t>(i)], frame_now_ms, p->stale_timeout_cfg_ms);
 			}
-			blit_nv12 = my_uvc_pip::pip_presenter_overlay_ptr(
-			    p->tile_nv12_cache[static_cast<size_t>(i)], !!p->tile_has_valid[static_cast<size_t>(i)],
-			    p->tile_last_update_ms[static_cast<size_t>(i)], frame_now_ms, p->stale_timeout_cfg_ms);
+			if (blit_nv12) {
+				PipHwNv12Blit tb{};
+				tb.nv12 = blit_nv12;
+				tb.fd = -1;
+				tb.dst_w = tow;
+				tb.dst_h = toh;
+				tb.ox = tox;
+				tb.oy = toy;
+				tb.src_w = isw;
+				tb.src_h = ish;
+				blits.push_back(tb);
+			}
 		}
-		if (blit_nv12)
-			blits.push_back(PipHwNv12Blit{blit_nv12, tow, toh, tox, toy, isw, ish});
 	}
-	if (ov_ptr) {
-		if (used_bg_for_presenter) {
-			blits.push_back(PipHwNv12Blit{ov_ptr, cur_ow, cur_oh, cur_x, cur_y, 0, 0});
-		} else {
-			blits.push_back(PipHwNv12Blit{ov_ptr, p->pip_ow, p->pip_oh, p->pip_x, p->pip_y, 0, 0});
-		}
+
+	if (ov_fd >= 0) {
+		PipHwNv12Blit pb{};
+		pb.nv12 = nullptr;
+		pb.fd = ov_fd;
+		pb.dst_w = cur_ow;
+		pb.dst_h = cur_oh;
+		pb.ox = cur_x;
+		pb.oy = cur_y;
+		pb.src_w = (opts && opts->presenter_fd >= 0) ? opts->presenter_nv12_src_w : 0;
+		pb.src_h = (opts && opts->presenter_fd >= 0) ? opts->presenter_nv12_src_h : 0;
+		blits.push_back(pb);
+	} else if (ov_ptr) {
+		PipHwNv12Blit pb{};
+		pb.nv12 = ov_ptr;
+		pb.fd = -1;
+		pb.dst_w = used_bg_for_presenter ? cur_ow : p->pip_ow;
+		pb.dst_h = used_bg_for_presenter ? cur_oh : p->pip_oh;
+		pb.ox = used_bg_for_presenter ? cur_x : p->pip_x;
+		pb.oy = used_bg_for_presenter ? cur_y : p->pip_y;
+		pb.src_w = 0;
+		pb.src_h = 0;
+		blits.push_back(pb);
 	}
 
 	PipBorderConfig bc{};
@@ -984,7 +1005,7 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8
 	bc.v = p->border_v;
 
 	p->jpeg_out.clear();
-	if (!pip_hw_composite_layers_nv12(p->hw, bg_nv12, bg_w, bg_h, blits.data(), static_cast<int>(blits.size()),
+	if (!pip_hw_composite_layers_nv12(p->hw, bg_fd, bg_w, bg_h, blits.data(), static_cast<int>(blits.size()),
 	                                  &bc, &p->jpeg_out)) {
 		set_err("pip_hw_composite_layers_nv12 failed");
 		return -1;

@@ -58,4 +58,6 @@ int release_yolov8_model(rknn_app_context_t* app_ctx);
 
 int inference_yolov8_model(rknn_app_context_t* app_ctx, image_buffer_t* img, object_detect_result_list* od_results);
 
+int inference_yolov8_model_zerocopy(rknn_app_context_t* app_ctx, rknn_tensor_mem* mem, letterbox_t* letter_box, object_detect_result_list* od_results);
+
 #endif //_RKNN_DEMO_YOLOV8_H_

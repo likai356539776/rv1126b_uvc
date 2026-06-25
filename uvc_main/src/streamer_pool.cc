@@ -150,36 +150,42 @@ void StreamerPool::ChannelWorker(size_t index, my_uvc_t* uvc_ctx, const CameraPi
 
 				if (current_frame->presenter_updated) {
 					po.presenter_nv12_updated = 1;
-					po.presenter_nv12 = current_frame->presenter_nv12.data();
+					po.presenter_nv12 = current_frame->presenter_virt_addr;
+					po.presenter_fd = current_frame->presenter_fd;
 					po.presenter_nv12_src_w = current_frame->presenter_w;
 					po.presenter_nv12_src_h = current_frame->presenter_h;
 				} else {
 					po.presenter_nv12_updated = 0;
+					po.presenter_fd = -1;
+					po.presenter_nv12 = nullptr;
 				}
 
 				int n_active = std::min((int)current_frame->tiles.size(), ch.pip_tile_n_tiles);
 				po.n_active = n_active;
 
 				const uint8_t *tile_nv12_ptrs[my_uvc_pip::kPipTileLayoutMax];
+				int tile_fds[my_uvc_pip::kPipTileLayoutMax];
 				int tile_src_w_arr[my_uvc_pip::kPipTileLayoutMax];
 				int tile_src_h_arr[my_uvc_pip::kPipTileLayoutMax];
 				int tile_updated_arr[my_uvc_pip::kPipTileLayoutMax];
 
 				for (int ti = 0; ti < n_active; ti++) {
-					tile_nv12_ptrs[ti] = current_frame->tiles[ti].nv12.data();
+					tile_nv12_ptrs[ti] = current_frame->tiles[ti].virt_addr;
+					tile_fds[ti] = current_frame->tiles[ti].fd;
 					tile_src_w_arr[ti] = current_frame->tiles[ti].w;
 					tile_src_h_arr[ti] = current_frame->tiles[ti].h;
 					tile_updated_arr[ti] = 1;
 				}
 
 				po.tile_nv12 = tile_nv12_ptrs;
+				po.tile_fds = tile_fds;
 				po.tile_src_w = tile_src_w_arr;
 				po.tile_src_h = tile_src_h_arr;
 				po.tile_nv12_updated = tile_updated_arr;
 
 				int pc = pip_helper_composite_nv12_background(
 					pip,
-					current_frame->bg_nv12.data(),
+					current_frame->bg_fd,
 					current_frame->bg_w,
 					current_frame->bg_h,
 					&po,

@@ -58,6 +58,8 @@ class CameraRockitRgbReader : public CameraReader {
   void ShutdownSubsystem();
 
   int ReadNextRgbInto(image_buffer_t* out, int timeout_ms) override;
+  int GetZeroCopyFrame(ZeroCopyFrame* out_frame, int timeout_ms) override;
+  void ReleaseZeroCopyFrame(ZeroCopyFrame* frame) override;
 
   int width() const override { return width_; }
   int height() const override { return height_; }
@@ -67,6 +69,7 @@ class CameraRockitRgbReader : public CameraReader {
   int vo_disp_height() const { return vo_disp_h_; }
   const RockitCameraConfig& config() const { return cfg_; }
   const uint8_t* GetLastNv12Data() const override { return nv12_tight_.data(); }
+  void SetYoloSize(int w, int h) { yolo_w_ = w; yolo_h_ = h; }
 
  private:
   int ViDevInit();
@@ -91,6 +94,13 @@ class CameraRockitRgbReader : public CameraReader {
 
   int vo_disp_w_ = 0;
   int vo_disp_h_ = 0;
+
+  int yolo_w_ = 640;
+  int yolo_h_ = 640;
+
+  void* zero_copy_mb_ = nullptr;
+  int zero_copy_fd_ = -1;
+  void* zero_copy_virt_ = nullptr;
 
   std::vector<unsigned char> nv12_tight_;
 };

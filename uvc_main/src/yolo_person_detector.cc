@@ -44,4 +44,41 @@ int YoloPersonDetector::DetectPersons(image_buffer_t* img, object_detect_result_
   return inference_yolov8_model(&ctx_, img, od_results);
 }
 
+int YoloPersonDetector::DetectPersonsZeroCopy(int fd, int w, int h, object_detect_result_list* od_results, double* out_infer_ms) {
+  if (zero_copy_fd_ != fd) {
+    if (zero_copy_mem_) {
+      rknn_destroy_mem(ctx_.rknn_ctx, zero_copy_mem_);
+      zero_copy_mem_ = nullptr;
+    }
+    int size = ctx_.model_width * ctx_.model_height * ctx_.model_channel;
+    zero_copy_fd_ = fd;
+    zero_copy_mem_ = rknn_create_mem_from_fd(ctx_.rknn_ctx, fd, NULL, size, 0);
+    if (!zero_copy_mem_) {
+      APP_LOGE("[yolo_detector] rknn_create_mem_from_fd failed for fd=%d\n", fd);
+      return -1;
+    }
+  }
+
+  letterbox_t letter_box{};
+  double scale = std::min((double)ctx_.model_width / w, (double)ctx_.model_height / h);
+  letter_box.scale = scale;
+  letter_box.x_pad = (ctx_.model_width - w * scale) / 2.0;
+  letter_box.y_pad = (ctx_.model_height - h * scale) / 2.0;
+
+  int ret = 0;
+  if (out_infer_ms) {
+#if MY_APP_TIMING_ENABLED
+    auto t0 = std::chrono::steady_clock::now();
+    ret = inference_yolov8_model_zerocopy(&ctx_, zero_copy_mem_, &letter_box, od_results);
+    *out_infer_ms = mono_elapsed_ms(t0);
+#else
+    *out_infer_ms = -1.0;
+    ret = inference_yolov8_model_zerocopy(&ctx_, zero_copy_mem_, &letter_box, od_results);
+#endif
+  } else {
+    ret = inference_yolov8_model_zerocopy(&ctx_, zero_copy_mem_, &letter_box, od_results);
+  }
+  return ret;
+}
+
 }  // namespace my_app

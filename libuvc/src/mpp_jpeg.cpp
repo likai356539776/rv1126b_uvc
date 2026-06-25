@@ -33,6 +33,8 @@ IM_STATUS imresize_t(const rga_buffer_t src, rga_buffer_t dst,
 IM_STATUS imcvtcolor_t(rga_buffer_t src, rga_buffer_t dst,
                        int sfmt, int dfmt, int mode, int sync);
 const char *imStrError_t(IM_STATUS status);
+IM_STATUS improcess(rga_buffer_t src, rga_buffer_t dst, rga_buffer_t pat,
+                    im_rect srect, im_rect drect, im_rect prect, int usage);
 }
 
 #define ALIGN16(x) (((x) + 15) & ~15)
@@ -735,29 +737,34 @@ bool pip_hw_composite_layers(PipHwContext *c,
 }
 
 bool pip_hw_composite_layers_nv12(PipHwContext *c,
-                                  const uint8_t *bg_nv12, int bg_w, int bg_h,
+                                  int bg_fd, int bg_w, int bg_h,
                                   const PipHwNv12Blit *blits, int n_blits,
                                   const PipBorderConfig *bc,
                                   std::vector<uint8_t> *out_jpeg)
 {
-	if (!c || !bg_nv12 || bg_w <= 0 || bg_h <= 0 || !out_jpeg)
+	if (!c || !out_jpeg)
 		return false;
 	if (n_blits < 0)
 		return false;
 	if (n_blits > 0 && !blits)
 		return false;
 
-	/* Step 1: Initialize canvas with black and perform overlay blits */
+	/* Step 1: Initialize canvas with background or black */
 	mpp_buffer_sync_begin(c->canvas_buf);
-	uint8_t *canvas_ptr = static_cast<uint8_t *>(mpp_buffer_get_ptr(c->canvas_buf));
-	std::memset(canvas_ptr, 16, static_cast<size_t>(c->hor_stride) * static_cast<size_t>(c->ver_stride));
-	std::memset(canvas_ptr + static_cast<size_t>(c->hor_stride) * static_cast<size_t>(c->ver_stride), 128, static_cast<size_t>(c->hor_stride) * static_cast<size_t>(c->ver_stride) / 2);
+	int canvas_fd = mpp_buffer_get_fd(c->canvas_buf);
+	if (bg_fd >= 0 && canvas_fd >= 0 && bg_w > 0 && bg_h > 0) {
+		rga_buffer_t src = wrapbuffer_fd_t(bg_fd, bg_w, bg_h, bg_w, bg_h, RK_FORMAT_YCbCr_420_SP);
+		rga_buffer_t dst = wrapbuffer_fd_t(canvas_fd, c->canvas_w, c->canvas_h, c->hor_stride, c->ver_stride, RK_FORMAT_YCbCr_420_SP);
+		imresize_t(src, dst, 0, 0, 0, 1);
+	} else {
+		uint8_t *canvas_ptr = static_cast<uint8_t *>(mpp_buffer_get_ptr(c->canvas_buf));
+		std::memset(canvas_ptr, 16, static_cast<size_t>(c->hor_stride) * static_cast<size_t>(c->ver_stride));
+		std::memset(canvas_ptr + static_cast<size_t>(c->hor_stride) * static_cast<size_t>(c->ver_stride), 128, static_cast<size_t>(c->hor_stride) * static_cast<size_t>(c->ver_stride) / 2);
+	}
 
 	std::vector<uint8_t> scale_scratch;
 	for (int i = 0; i < n_blits; i++) {
 		const PipHwNv12Blit &b = blits[i];
-		if (!b.nv12 || b.dst_w <= 0 || b.dst_h <= 0)
-			continue;
 		const int dw = ALIGN2(b.dst_w);
 		const int dh = ALIGN2(b.dst_h);
 		const bool custom_src = b.src_w > 0 && b.src_h > 0;
@@ -765,20 +772,39 @@ bool pip_hw_composite_layers_nv12(PipHwContext *c,
 		int sh = custom_src ? b.src_h : b.dst_h;
 		sw = ALIGN2(sw);
 		sh = ALIGN2(sh);
-		const uint8_t *blit_src = b.nv12;
-		if (custom_src && (sw != dw || sh != dh)) {
-			const size_t need = static_cast<size_t>(dw) * static_cast<size_t>(dh) * 3 / 2;
-			if (scale_scratch.size() < need)
-				scale_scratch.resize(need);
-			if (!pip_hw_nv12_resize_virtual(b.nv12, sw, sh, scale_scratch.data(), b.dst_w, b.dst_h)) {
-				mpp_buffer_sync_end(c->canvas_buf);
-				return false;
+
+		if (b.fd >= 0 && canvas_fd >= 0) {
+			// Zero-copy scaling & blitting using RGA
+			rga_buffer_t src = wrapbuffer_fd_t(b.fd, sw, sh, sw, sh, RK_FORMAT_YCbCr_420_SP);
+			rga_buffer_t dst = wrapbuffer_fd_t(canvas_fd, c->canvas_w, c->canvas_h, c->hor_stride, c->ver_stride, RK_FORMAT_YCbCr_420_SP);
+			im_rect srect = { 0, 0, sw, sh };
+			im_rect drect = { b.ox, b.oy, dw, dh };
+			improcess(src, dst, {}, srect, drect, {}, IM_SYNC);
+			
+			if (bc && bc->enable) {
+				uint8_t *canvas_ptr = static_cast<uint8_t *>(mpp_buffer_get_ptr(c->canvas_buf));
+				draw_rounded_border(canvas_ptr, c->hor_stride, c->ver_stride, b.ox, b.oy, b.dst_w, b.dst_h, *bc);
 			}
-			blit_src = scale_scratch.data();
-		}
-		blit_nv12(canvas_ptr, c->hor_stride, c->ver_stride, blit_src, dw, dh, b.ox, b.oy);
-		if (bc && bc->enable) {
-			draw_rounded_border(canvas_ptr, c->hor_stride, c->ver_stride, b.ox, b.oy, b.dst_w, b.dst_h, *bc);
+		} else {
+			// Fallback: CPU-based blitting
+			if (!b.nv12 || b.dst_w <= 0 || b.dst_h <= 0)
+				continue;
+			const uint8_t *blit_src = b.nv12;
+			if (custom_src && (sw != dw || sh != dh)) {
+				const size_t need = static_cast<size_t>(dw) * static_cast<size_t>(dh) * 3 / 2;
+				if (scale_scratch.size() < need)
+					scale_scratch.resize(need);
+				if (!pip_hw_nv12_resize_virtual(b.nv12, sw, sh, scale_scratch.data(), b.dst_w, b.dst_h)) {
+					mpp_buffer_sync_end(c->canvas_buf);
+					return false;
+				}
+				blit_src = scale_scratch.data();
+			}
+			uint8_t *canvas_ptr = static_cast<uint8_t *>(mpp_buffer_get_ptr(c->canvas_buf));
+			blit_nv12(canvas_ptr, c->hor_stride, c->ver_stride, blit_src, dw, dh, b.ox, b.oy);
+			if (bc && bc->enable) {
+				draw_rounded_border(canvas_ptr, c->hor_stride, c->ver_stride, b.ox, b.oy, b.dst_w, b.dst_h, *bc);
+			}
 		}
 	}
 	mpp_buffer_sync_end(c->canvas_buf);
@@ -796,7 +822,7 @@ bool pip_hw_composite(PipHwContext *c,
 	PipHwNv12Blit b[1];
 	int n = 0;
 	if (overlay_nv12 && ow > 0 && oh > 0) {
-		b[0] = {overlay_nv12, ow, oh, ox, oy, 0, 0};
+		b[0] = {overlay_nv12, -1, ow, oh, ox, oy, 0, 0};
 		n = 1;
 	}
 	return pip_hw_composite_layers(c, jpeg_data, jpeg_len, b, n, nullptr, out_jpeg);

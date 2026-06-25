@@ -8,6 +8,8 @@
 #include "postprocess.h"
 #include "my_uvc_pip/pip_tile_layout.hpp"
 
+#include "camera_reader.h"
+
 namespace my_app {
 
 struct TrackedSlot {
@@ -18,40 +20,55 @@ struct TrackedSlot {
 	bool active = false;
 	bool moving = false;
 	int64_t last_seen_ms = 0;
-	std::vector<uint8_t> last_nv12;
+	
+	void* mb_blk = nullptr;
+	int fd = -1;
+	void* virt_addr = nullptr;
+
 	int crop_w = 0;
 	int crop_h = 0;
 };
 
 struct FrameData {
 	long long frame_index = 0;
-	std::vector<uint8_t> bg_nv12;
+	int bg_fd = -1;
+	const uint8_t* bg_virt_addr = nullptr;
 	int bg_w = 0;
 	int bg_h = 0;
 
-	std::vector<uint8_t> presenter_nv12;
+	int presenter_fd = -1;
+	const uint8_t* presenter_virt_addr = nullptr;
 	int presenter_w = 0;
 	int presenter_h = 0;
 	bool presenter_updated = false;
 
 	struct Tile {
-		std::vector<uint8_t> nv12;
+		int fd = -1;
+		const uint8_t* virt_addr = nullptr;
 		int w = 0;
 		int h = 0;
 	};
 	std::vector<Tile> tiles;
+
+	ZeroCopyFrame camera_frame;
+	CameraReader* camera_reader = nullptr;
+
+	~FrameData() {
+		if (camera_reader) {
+			camera_reader->ReleaseZeroCopyFrame(&camera_frame);
+		}
+	}
 };
 
 class PersonTracker {
 public:
 	PersonTracker();
-	~PersonTracker() = default;
+	~PersonTracker();
 
 	void Update(const std::vector<object_detect_result>& persons,
-	            const uint8_t* nv12_data, int vw, int vh, int64_t now_ms, int max_tiles = 4);
+	            const ZeroCopyFrame& frame, int64_t now_ms, int max_tiles = 4);
 
-	std::shared_ptr<FrameData> GenerateFrameData(long long frame_idx, const uint8_t* nv12_data,
-	                                             int vw, int vh, int max_tiles) const;
+	std::shared_ptr<FrameData> GenerateFrameData(const ZeroCopyFrame& frame, CameraReader* reader, int max_tiles) const;
 
 private:
 	void GetAlignedCropBoxCentered(int src_w, int src_h, int cx, int cy, int w, int h,

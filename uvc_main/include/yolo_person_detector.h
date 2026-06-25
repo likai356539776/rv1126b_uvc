@@ -18,11 +18,16 @@ class YoloPersonDetector {
   void Shutdown();
 
   int DetectPersons(image_buffer_t* img, object_detect_result_list* od_results, double* out_infer_ms);
+  int DetectPersonsZeroCopy(int fd, int w, int h, object_detect_result_list* od_results, double* out_infer_ms);
 
   rknn_app_context_t* context() { return &ctx_; }
 
  private:
   rknn_app_context_t ctx_;
+  rknn_tensor_mem* zero_copy_mem_ = nullptr;
+  void* zero_copy_virt_ = nullptr;
+  int zero_copy_fd_ = -1;
+  void* zero_copy_mb_ = nullptr;
 };
 
 }  // namespace my_app

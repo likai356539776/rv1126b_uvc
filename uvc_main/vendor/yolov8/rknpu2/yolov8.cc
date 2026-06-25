@@ -245,3 +245,57 @@ int inference_yolov8_model(rknn_app_context_t *app_ctx, image_buffer_t *img, obj
 out:
     return ret;
 }
+
+int inference_yolov8_model_zerocopy(rknn_app_context_t* app_ctx, rknn_tensor_mem* mem, letterbox_t* letter_box, object_detect_result_list* od_results)
+{
+    int ret;
+    rknn_output outputs[app_ctx->io_num.n_output];
+    const float nms_threshold = NMS_THRESH;
+    const float box_conf_threshold = BOX_THRESH;
+
+    if ((!app_ctx) || (!mem) || (!od_results))
+    {
+        return -1;
+    }
+
+    memset(od_results, 0x00, sizeof(*od_results));
+    memset(outputs, 0, sizeof(outputs));
+
+    // Set Input Mem
+    ret = rknn_set_io_mem(app_ctx->rknn_ctx, mem, &app_ctx->input_attrs[0]);
+    if (ret < 0)
+    {
+        APP_LOGE("rknn_set_io_mem fail! ret=%d\n", ret);
+        return -1;
+    }
+
+    // Run
+    ret = rknn_run(app_ctx->rknn_ctx, nullptr);
+    if (ret < 0)
+    {
+        APP_LOGE("rknn_run fail! ret=%d\n", ret);
+        return -1;
+    }
+
+    // Get Output
+    memset(outputs, 0, sizeof(outputs));
+    for (int i = 0; i < app_ctx->io_num.n_output; i++)
+    {
+        outputs[i].index = i;
+        outputs[i].want_float = (!app_ctx->is_quant);
+    }
+    ret = rknn_outputs_get(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs, NULL);
+    if (ret < 0)
+    {
+        APP_LOGE("rknn_outputs_get fail! ret=%d\n", ret);
+        return -1;
+    }
+
+    // Post Process
+    post_process(app_ctx, outputs, letter_box, box_conf_threshold, nms_threshold, od_results);
+
+    // Release outputs
+    rknn_outputs_release(app_ctx->rknn_ctx, app_ctx->io_num.n_output, outputs);
+
+    return ret;
+}

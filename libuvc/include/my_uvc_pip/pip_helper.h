@@ -68,20 +68,22 @@ typedef struct pip_helper_composite_opts {
 	int64_t now_ms;
 	int presenter_nv12_updated;
 	const uint8_t *presenter_nv12;
+	int presenter_fd;
 	int presenter_nv12_src_w;
 	int presenter_nv12_src_h;
 	/**
 	 * 本帧参与合成的网格路数：`0 … pip_tile_n_tiles`（create 时布局上限）。
-	 * `tile_nv12[i]`：源尺寸为 `tile_src_w[i]×tile_src_h[i]`（均 >0 且可与槽位不同则 RGA 缩放）；`tile_src_w`/`tile_src_h` 为 NULL 时源须已等于槽位 ALIGN2 尺寸。
+	 * `tile_nv12[i]` / `tile_fds[i]`：源尺寸为 `tile_src_w[i]×tile_src_h[i]`。
 	 */
 	int n_active;
 	const uint8_t **tile_nv12;
+	const int *tile_fds;
 	const int *tile_src_w;
 	const int *tile_src_h;
 	/**
-	 * 可选，长度 ≥ n_active。NULL：旧语义，每帧 tile_nv12[i] 均为新帧且不可为 NULL。
-	 * 非 NULL：tile_nv12_updated[i]≠0 时须提供 tile_nv12[i]；为 0 时可不提供指针，库内沿用该槽
-	 * NV12 缓存并套用 pip_overlay_stale_timeout_ms（与主讲人一致）；超时则该格不叠画（停止叠加该路）。
+	 * 可选，长度 ≥ n_active。NULL：旧语义，每帧 tile_nv12[i]/tile_fds[i] 均为新帧且不可为 NULL。
+	 * 非 NULL：tile_nv12_updated[i]≠0 时须提供 tile_nv12[i]/tile_fds[i]；为 0 时可不提供，库内沿用该槽
+	 * 缓存并套用 pip_overlay_stale_timeout_ms。
 	 */
 	const int *tile_nv12_updated;
 } pip_helper_composite_opts_t;
@@ -110,7 +112,7 @@ int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_jpeg, size_
                                   const pip_helper_composite_opts_t *opts, const uint8_t **out_jpeg,
                                   size_t *out_jpeg_len);
 
-int pip_helper_composite_nv12_background(pip_helper_t *h, const uint8_t *bg_nv12, int bg_w, int bg_h,
+int pip_helper_composite_nv12_background(pip_helper_t *h, int bg_fd, int bg_w, int bg_h,
                                          const pip_helper_composite_opts_t *opts, const uint8_t **out_jpeg,
                                          size_t *out_jpeg_len);
 

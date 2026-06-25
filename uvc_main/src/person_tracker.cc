@@ -7,6 +7,25 @@
 #include <cstring>
 #include "app_log.h"
 
+extern "C" {
+#include "rk_mpi_mmz.h"
+#include "rk_mpi_mb.h"
+}
+
+#include <rga/im2d_type.h>
+#include <rga/rga.h>
+
+extern "C" {
+rga_buffer_t wrapbuffer_virtualaddr_t(void *vir_addr, int width, int height,
+                                      int wstride, int hstride, int format);
+rga_buffer_t wrapbuffer_fd_t(int fd, int width, int height,
+                             int wstride, int hstride, int format);
+IM_STATUS imresize_t(const rga_buffer_t src, rga_buffer_t dst,
+                     double fx, double fy, int interpolation, int sync);
+IM_STATUS imcrop_t(const rga_buffer_t src, rga_buffer_t dst,
+                   im_rect rect, int sync);
+}
+
 namespace {
 void nv12_crop_cpu(const uint8_t* src, int src_w, int src_h, int crop_x, int crop_y, uint8_t* dst, int crop_w, int crop_h) {
 	// Crop Y plane
@@ -35,6 +54,28 @@ namespace my_app {
 
 PersonTracker::PersonTracker() {
 	slots_.resize(my_uvc_pip::kPipTileLayoutMax);
+	int crop_size = 640 * 640 * 3 / 2;
+	for (auto &slot : slots_) {
+		RK_S32 ret = RK_MPI_MMZ_Alloc((MB_BLK*)&slot.mb_blk, crop_size, 0);
+		if (ret == RK_SUCCESS) {
+			slot.fd = RK_MPI_MMZ_Handle2Fd(slot.mb_blk);
+			slot.virt_addr = RK_MPI_MB_Handle2VirAddr(slot.mb_blk);
+		} else {
+			APP_LOGE("[PersonTracker] MMZ Alloc failed for slot! ret=0x%x\n", ret);
+			slot.mb_blk = nullptr;
+			slot.fd = -1;
+			slot.virt_addr = nullptr;
+		}
+	}
+}
+
+PersonTracker::~PersonTracker() {
+	for (auto &slot : slots_) {
+		if (slot.mb_blk) {
+			RK_MPI_MMZ_Free(slot.mb_blk);
+			slot.mb_blk = nullptr;
+		}
+	}
 }
 
 void PersonTracker::GetAlignedCropBoxCentered(int src_w, int src_h, int cx, int cy, int w, int h,
@@ -74,26 +115,28 @@ void PersonTracker::GetAlignedCropBoxCentered(int src_w, int src_h, int cx, int 
 }
 
 void PersonTracker::Update(const std::vector<object_detect_result>& persons,
-                           const uint8_t* nv12_data, int vw, int vh, int64_t now_ms, int max_tiles) {
+                           const ZeroCopyFrame& frame, int64_t now_ms, int max_tiles) {
 	int P = (int)persons.size();
 
-	// Track which detected person is matched to which slot
+	double scale_x = (frame.ch1_w > 0) ? (double)frame.ch0_w / frame.ch1_w : 1.0;
+	double scale_y = (frame.ch1_h > 0) ? (double)frame.ch0_h / frame.ch1_h : 1.0;
+
 	std::vector<int> person_matched_to_slot(P, -1);
 	std::vector<bool> slot_occupied(slots_.size(), false);
 
 	if (P > 0) {
-		// Precompute center coordinates for all detected persons
 		struct PersonCenter {
 			double cx;
 			double cy;
 		};
 		std::vector<PersonCenter> det_persons(P);
 		for (int i = 0; i < P; i++) {
-			det_persons[i].cx = persons[i].box.left + (persons[i].box.right - persons[i].box.left + 1) / 2.0;
-			det_persons[i].cy = persons[i].box.top + (persons[i].box.bottom - persons[i].box.top + 1) / 2.0;
+			double raw_cx = persons[i].box.left + (persons[i].box.right - persons[i].box.left + 1) / 2.0;
+			double raw_cy = persons[i].box.top + (persons[i].box.bottom - persons[i].box.top + 1) / 2.0;
+			det_persons[i].cx = raw_cx * scale_x;
+			det_persons[i].cy = raw_cy * scale_y;
 		}
 
-		// Compute all possible pairs of (person_idx, slot_idx, distance)
 		struct MatchPair {
 			int person_idx;
 			int slot_idx;
@@ -109,12 +152,10 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 			}
 		}
 
-		// Sort pairs by distance ascending
 		std::sort(pairs.begin(), pairs.end(), [](const MatchPair &a, const MatchPair &b) {
 			return a.dist < b.dist;
 		});
 
-		// Greedy match pairs based on global distance optimization
 		for (const auto &pair : pairs) {
 			if (person_matched_to_slot[pair.person_idx] == -1 && !slot_occupied[pair.slot_idx]) {
 				person_matched_to_slot[pair.person_idx] = pair.slot_idx;
@@ -122,7 +163,6 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 			}
 		}
 
-		// Second pass: Assign unmatched persons to inactive slots
 		for (size_t i = 0; i < persons.size(); i++) {
 			if (person_matched_to_slot[i] == -1) {
 				int target_slot = -1;
@@ -140,11 +180,10 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 		}
 	}
 
+	int vw = frame.ch0_w;
+	int vh = frame.ch0_h;
 
-
-	// Third pass: Update slots and crop active ones
 	for (size_t s = 0; s < slots_.size(); s++) {
-		// Find if any person is matched to this slot
 		int matched_idx = -1;
 		for (size_t i = 0; i < persons.size(); i++) {
 			if (person_matched_to_slot[i] == static_cast<int>(s)) {
@@ -154,14 +193,13 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 		}
 
 		if (matched_idx != -1) {
-			// Slot is matched with a newly detected person
 			const auto &person = persons[matched_idx];
 			int pw = person.box.right - person.box.left + 1;
 			int ph = person.box.bottom - person.box.top + 1;
-			double cx_new = person.box.left + pw / 2.0;
-			double cy_new = person.box.top + ph / 2.0;
-			double w_new = pw;
-			double h_new = ph;
+			double cx_new = (person.box.left + pw / 2.0) * scale_x;
+			double cy_new = (person.box.top + ph / 2.0) * scale_y;
+			double w_new = pw * scale_x;
+			double h_new = ph * scale_y;
 
 			if (slots_[s].active) {
 				double dist = std::hypot(cx_new - slots_[s].cx, cy_new - slots_[s].cy);
@@ -199,7 +237,6 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 			}
 			slots_[s].last_seen_ms = now_ms;
 
-			// Calculate target grid cell aspect ratio based on layout configs
 			double target_ar = 1.0;
 			int n = max_tiles;
 			if (n < 4) n = 4;
@@ -214,18 +251,16 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 
 			int margin_px = 2;
 			int gap_px = 2;
-			int tile_h = (vh - 2 * margin_px - (R - 1) * gap_px) / R;
-			int tile_w = (vw - 2 * margin_px - (C - 1) * gap_px) / C;
+			int tile_h = (frame.ch2_h - 2 * margin_px - (R - 1) * gap_px) / R;
+			int tile_w = (frame.ch2_w - 2 * margin_px - (C - 1) * gap_px) / C;
 			if (tile_h > 0 && tile_w > 0) {
 				target_ar = (double)tile_w / tile_h;
 			}
 
-			// Apply upward shift (12% of height shift upward to center the head)
 			double shift_y = 0.12 * slots_[s].h;
 			double cx_crop = slots_[s].cx;
 			double cy_crop = slots_[s].cy - shift_y;
 
-			// Add 15% safety padding, then expand to match target aspect ratio
 			double pad_factor = 1.15;
 			double base_w = slots_[s].w * pad_factor;
 			double base_h = slots_[s].h * pad_factor;
@@ -233,25 +268,32 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 			double ch_crop = base_h;
 
 			if (base_w / base_h < target_ar) {
-				// Slot is wider than person, expand width
 				cw_crop = base_h * target_ar;
 			} else {
-				// Slot is narrower than person, expand height
 				ch_crop = base_w / target_ar;
 			}
 
-			// Crop the person and update the saved buffer using aligned crop box
 			image_rect_t crop_box{};
 			int crop_w = 0, crop_h = 0;
 			GetAlignedCropBoxCentered(vw, vh, (int)cx_crop, (int)cy_crop, (int)cw_crop, (int)ch_crop, &crop_box, &crop_w, &crop_h);
 
 			slots_[s].crop_w = crop_w;
 			slots_[s].crop_h = crop_h;
-			slots_[s].last_nv12.resize(crop_w * crop_h * 3 / 2);
 
-			nv12_crop_cpu(nv12_data, vw, vh, crop_box.left, crop_box.top, slots_[s].last_nv12.data(), crop_w, crop_h);
+			if (frame.ch0_fd != -1 && slots_[s].fd != -1) {
+				rga_buffer_t src = wrapbuffer_fd_t(frame.ch0_fd, frame.ch0_w, frame.ch0_h, frame.ch0_w, frame.ch0_h, RK_FORMAT_YCbCr_420_SP);
+				rga_buffer_t dst = wrapbuffer_fd_t(slots_[s].fd, crop_w, crop_h, crop_w, crop_h, RK_FORMAT_YCbCr_420_SP);
+				
+				im_rect rect = { crop_box.left, crop_box.top, crop_w, crop_h };
+				imcrop_t(src, dst, rect, 1);
+			} else if (frame.opaque_frame0 && slots_[s].virt_addr) {
+				rga_buffer_t src = wrapbuffer_virtualaddr_t(frame.opaque_frame0, frame.ch0_w, frame.ch0_h, frame.ch0_w, frame.ch0_h, RK_FORMAT_YCbCr_420_SP);
+				rga_buffer_t dst = wrapbuffer_virtualaddr_t(slots_[s].virt_addr, crop_w, crop_h, crop_w, crop_h, RK_FORMAT_YCbCr_420_SP);
+				
+				im_rect rect = { crop_box.left, crop_box.top, crop_w, crop_h };
+				imcrop_t(src, dst, rect, 1);
+			}
 		} else {
-			// No person matched in this frame. Check 1-second persistence timeout.
 			if (slots_[s].active) {
 				if (now_ms - slots_[s].last_seen_ms > 1000) {
 					slots_[s].active = false;
@@ -262,28 +304,30 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 	}
 }
 
-std::shared_ptr<FrameData> PersonTracker::GenerateFrameData(long long frame_idx, const uint8_t* nv12_data,
-                                                           int vw, int vh, int max_tiles) const {
+std::shared_ptr<FrameData> PersonTracker::GenerateFrameData(const ZeroCopyFrame& frame, CameraReader* reader, int max_tiles) const {
 	auto new_frame = std::make_shared<FrameData>();
-	new_frame->frame_index = frame_idx;
-	new_frame->bg_w = vw;
-	new_frame->bg_h = vh;
-	new_frame->bg_nv12.assign(nv12_data, nv12_data + vw * vh * 3 / 2);
+	new_frame->frame_index = frame.frame_index;
+	new_frame->bg_w = frame.ch2_w;
+	new_frame->bg_h = frame.ch2_h;
+	new_frame->bg_fd = frame.ch2_fd;
+	new_frame->bg_virt_addr = static_cast<const uint8_t*>(frame.opaque_frame2);
 
-	// Presenter is no longer populated from YOLO slots
+	new_frame->camera_frame = frame;
+	new_frame->camera_reader = reader;
+
+	new_frame->presenter_fd = -1;
+	new_frame->presenter_virt_addr = nullptr;
 	new_frame->presenter_w = 0;
 	new_frame->presenter_h = 0;
 	new_frame->presenter_updated = false;
 
-	// Tiles (Slots 0..M-1)
 	std::vector<size_t> active_tile_indices;
 	for (size_t s = 0; s < slots_.size(); s++) {
-		if (slots_[s].active && !slots_[s].last_nv12.empty()) {
+		if (slots_[s].active && (slots_[s].fd != -1 || slots_[s].virt_addr != nullptr)) {
 			active_tile_indices.push_back(s);
 		}
 	}
 
-	// Sort active slots left-to-right (by cx)
 	std::sort(active_tile_indices.begin(), active_tile_indices.end(), [this](size_t a, size_t b) {
 		return slots_[a].cx < slots_[b].cx;
 	});
@@ -294,7 +338,8 @@ std::shared_ptr<FrameData> PersonTracker::GenerateFrameData(long long frame_idx,
 		size_t s = active_tile_indices[i];
 		new_frame->tiles[i].w = slots_[s].crop_w;
 		new_frame->tiles[i].h = slots_[s].crop_h;
-		new_frame->tiles[i].nv12 = slots_[s].last_nv12;
+		new_frame->tiles[i].fd = slots_[s].fd;
+		new_frame->tiles[i].virt_addr = static_cast<const uint8_t*>(slots_[s].virt_addr);
 	}
 
 	return new_frame;
