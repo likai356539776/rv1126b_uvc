@@ -48,7 +48,7 @@ public:
 	~PersonTracker() = default;
 
 	void Update(const std::vector<object_detect_result>& persons,
-	            const uint8_t* nv12_data, int vw, int vh, int64_t now_ms);
+	            const uint8_t* nv12_data, int vw, int vh, int64_t now_ms, int max_tiles = 4);
 
 	std::shared_ptr<FrameData> GenerateFrameData(long long frame_idx, const uint8_t* nv12_data,
 	                                             int vw, int vh, int max_tiles) const;

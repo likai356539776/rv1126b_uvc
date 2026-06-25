@@ -175,7 +175,7 @@ void CameraPipeline::RunLoop(const std::atomic<bool>& shutdown_flag) {
 		}
 
 		int64_t now_ms = GetSteadyMs();
-		tracker_.Update(persons, nv12_data, vw, vh, now_ms);
+		tracker_.Update(persons, nv12_data, vw, vh, now_ms, cfg_.max_tiles);
 
 		auto new_frame = tracker_.GenerateFrameData(frame_idx, nv12_data, vw, vh, cfg_.max_tiles);
 

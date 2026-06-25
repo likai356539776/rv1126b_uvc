@@ -74,7 +74,7 @@ void PersonTracker::GetAlignedCropBoxCentered(int src_w, int src_h, int cx, int 
 }
 
 void PersonTracker::Update(const std::vector<object_detect_result>& persons,
-                           const uint8_t* nv12_data, int vw, int vh, int64_t now_ms) {
+                           const uint8_t* nv12_data, int vw, int vh, int64_t now_ms, int max_tiles) {
 	int P = (int)persons.size();
 
 	// Track which detected person is matched to which slot
@@ -199,10 +199,51 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 			}
 			slots_[s].last_seen_ms = now_ms;
 
-			// Crop the person and update the saved buffer
+			// Calculate target grid cell aspect ratio based on layout configs
+			double target_ar = 1.0;
+			int n = max_tiles;
+			if (n < 4) n = 4;
+			if (n > 16) n = 16;
+
+			int R = 1, C = 4;
+			if (n <= 4) { R = 1; C = 4; }
+			else if (n <= 6) { R = 2; C = 3; }
+			else if (n <= 8) { R = 2; C = 4; }
+			else if (n <= 9) { R = 3; C = 3; }
+			else { R = 4; C = 4; }
+
+			int margin_px = 2;
+			int gap_px = 2;
+			int tile_h = (vh - 2 * margin_px - (R - 1) * gap_px) / R;
+			int tile_w = (vw - 2 * margin_px - (C - 1) * gap_px) / C;
+			if (tile_h > 0 && tile_w > 0) {
+				target_ar = (double)tile_w / tile_h;
+			}
+
+			// Apply upward shift (12% of height shift upward to center the head)
+			double shift_y = 0.12 * slots_[s].h;
+			double cx_crop = slots_[s].cx;
+			double cy_crop = slots_[s].cy - shift_y;
+
+			// Add 15% safety padding, then expand to match target aspect ratio
+			double pad_factor = 1.15;
+			double base_w = slots_[s].w * pad_factor;
+			double base_h = slots_[s].h * pad_factor;
+			double cw_crop = base_w;
+			double ch_crop = base_h;
+
+			if (base_w / base_h < target_ar) {
+				// Slot is wider than person, expand width
+				cw_crop = base_h * target_ar;
+			} else {
+				// Slot is narrower than person, expand height
+				ch_crop = base_w / target_ar;
+			}
+
+			// Crop the person and update the saved buffer using aligned crop box
 			image_rect_t crop_box{};
 			int crop_w = 0, crop_h = 0;
-			GetAlignedCropBoxCentered(vw, vh, (int)slots_[s].cx, (int)slots_[s].cy, (int)slots_[s].w, (int)slots_[s].h, &crop_box, &crop_w, &crop_h);
+			GetAlignedCropBoxCentered(vw, vh, (int)cx_crop, (int)cy_crop, (int)cw_crop, (int)ch_crop, &crop_box, &crop_w, &crop_h);
 
 			slots_[s].crop_w = crop_w;
 			slots_[s].crop_h = crop_h;
