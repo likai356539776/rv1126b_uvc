@@ -35,7 +35,7 @@ bool CameraPipeline::Initialize(const CameraPipelineConfig& cfg) {
 		camera_reader_ = std::move(rockit_reader);
 	}
 
-	if (camera_reader_->Open(cfg_.width, cfg_.height, cfg_.camera_node, cfg_.fps, cfg_.camera_width, cfg_.camera_height) != 0) {
+	if (camera_reader_->Open(cfg_.width, cfg_.height, cfg_.camera_node, cfg_.fps, cfg_.camera_width, cfg_.camera_height, cfg_.vo_enable) != 0) {
 		APP_LOGE("camera_pipeline: CameraReader Open failed (type: %s, node: %s)\n",
 		         cfg_.camera_type.c_str(), cfg_.camera_node.c_str());
 		yolo_.Shutdown();
@@ -91,38 +91,45 @@ void CameraPipeline::RunLoop(const std::atomic<bool>& shutdown_flag) {
 	long long frame_idx = 0;
 
 	while (is_running_.load() && !shutdown_flag.load()) {
-		ZeroCopyFrame zero_copy_frame{};
-		int read_r = camera_reader_->GetZeroCopyFrame(&zero_copy_frame, 1000);
-		
-		if (read_r == 0) {
-			// Rockit Zero-copy mode
-			frame_idx = zero_copy_frame.frame_index;
-			object_detect_result_list od_results{};
-			if (yolo_.DetectPersonsZeroCopy(zero_copy_frame.ch1_fd, zero_copy_frame.ch1_w, zero_copy_frame.ch1_h, &od_results, nullptr) != 0) {
-				APP_LOGE("camera_pipeline: DetectPersonsZeroCopy failed\n");
-				camera_reader_->ReleaseZeroCopyFrame(&zero_copy_frame);
-				continue;
-			}
-
-			std::vector<object_detect_result> persons;
-			for (int i = 0; i < od_results.count; i++) {
-				if (od_results.results[i].cls_id == 0 && od_results.results[i].prop >= cfg_.yolo_score_threshold) {
-					persons.push_back(od_results.results[i]);
+		if (cfg_.camera_type == "rockit") {
+			ZeroCopyFrame zero_copy_frame{};
+			int read_r = camera_reader_->GetZeroCopyFrame(&zero_copy_frame, 1000);
+			
+			if (read_r == 0) {
+				// Rockit Zero-copy mode
+				frame_idx = zero_copy_frame.frame_index;
+				object_detect_result_list od_results{};
+				if (yolo_.DetectPersonsZeroCopy(zero_copy_frame.ch1_vir, zero_copy_frame.ch1_w, zero_copy_frame.ch1_h, &od_results, nullptr) != 0) {
+					APP_LOGE("camera_pipeline: DetectPersonsZeroCopy failed\n");
+					camera_reader_->ReleaseZeroCopyFrame(&zero_copy_frame);
+					continue;
 				}
-			}
 
-			if (frame_idx < 300 && frame_idx % 30 == 0) {
-				APP_LOGI("camera_pipeline (zero-copy): frame_idx=%lld, detected %d objects, %d persons\n",
-				         frame_idx, od_results.count, (int)persons.size());
-			}
+				std::vector<object_detect_result> persons;
+				for (int i = 0; i < od_results.count; i++) {
+					if (od_results.results[i].cls_id == 0 && od_results.results[i].prop >= cfg_.yolo_score_threshold) {
+						persons.push_back(od_results.results[i]);
+					}
+				}
 
-			int64_t now_ms = GetSteadyMs();
-			tracker_.Update(persons, zero_copy_frame, now_ms, cfg_.max_tiles);
-			auto new_frame = tracker_.GenerateFrameData(zero_copy_frame, camera_reader_.get(), cfg_.max_tiles);
+				if (frame_idx < 300 && frame_idx % 30 == 0) {
+					APP_LOGI("camera_pipeline (zero-copy): frame_idx=%lld, detected %d objects, %d persons\n",
+					         frame_idx, od_results.count, (int)persons.size());
+				}
 
-			{
-				std::lock_guard<std::mutex> lock(frame_mutex_);
-				latest_frame_ = new_frame;
+				int64_t now_ms = GetSteadyMs();
+				tracker_.Update(persons, zero_copy_frame, now_ms, cfg_.max_tiles);
+				auto new_frame = tracker_.GenerateFrameData(zero_copy_frame, camera_reader_.get(), cfg_.max_tiles);
+
+				{
+					std::lock_guard<std::mutex> lock(frame_mutex_);
+					latest_frame_ = new_frame;
+				}
+			} else {
+				// GetZeroCopyFrame failed, sleep a short time and retry.
+				// Do NOT fall back to ReadNextRgbInto, which only drains ch0 and clogs the VPSS channels.
+				std::this_thread::sleep_for(std::chrono::milliseconds(30));
+				continue;
 			}
 		} else {
 			// Legacy/V4L2 fallback mode using virtual addresses

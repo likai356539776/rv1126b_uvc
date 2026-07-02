@@ -185,7 +185,7 @@ void StreamerPool::ChannelWorker(size_t index, my_uvc_t* uvc_ctx, const CameraPi
 
 				int pc = pip_helper_composite_nv12_background(
 					pip,
-					current_frame->bg_fd,
+					-1, // Pass -1 to remove background camera layer (canvas defaults to black)
 					current_frame->bg_w,
 					current_frame->bg_h,
 					&po,

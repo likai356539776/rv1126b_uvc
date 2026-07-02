@@ -18,3 +18,10 @@
 
 - [x] 4.1 Compile the project using `./autobuild.sh` and fix any compilation issues.
 - [x] 4.2 Measure end-to-end latency, CPU consumption, and framerate comparing the virtual-address pipeline vs. the zero-copy pipeline.
+
+## 5. Bugfix for UVC No Image Output
+
+- [ ] 5.1 Implement dynamic VI/VPSS capture path switching (Scheme C). If `vo_enable = false`, bypass VPSS initialization/binding completely and retrieve/release frames directly from/to VI via `RK_MPI_VI_GetChnFrame`. If `vo_enable = true`, initialize VPSS and use VPSS pull path.
+
+
+

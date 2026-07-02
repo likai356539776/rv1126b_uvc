@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
 
+
 FORMAT="H.264"
 WIDTH="1920"
 HEIGHT="1080"
@@ -173,14 +174,39 @@ esac
 validate_channels "$CHANNELS"
 
 if [ "$STOP_SYSTEM_USB" -eq 1 ]; then
-	if [ -x /usr/bin/usbdevice ]; then
+	if [ -x /etc/init.d/S50usbdevice.sh ]; then
+		logv "stopping system usb service: /etc/init.d/S50usbdevice.sh stop"
+		/etc/init.d/S50usbdevice.sh stop || true
+	elif [ -x /usr/bin/usbdevice ]; then
 		logv "stopping system usb manager: /usr/bin/usbdevice stop"
 		/usr/bin/usbdevice stop || true
 	fi
 fi
 
+# Ensure that if adbd daemon is killed or not running, we start it.
+# adb functionfs should be mounted at /dev/usb-ffs/adb.
+if [ -x /usr/bin/adbd ]; then
+	if killall -0 adbd >/dev/null 2>&1; then
+		logv "adbd is already running"
+	else
+		logv "adbd not running, starting it"
+		if grep -q " /dev/usb-ffs/adb " /proc/mounts; then
+			logv "adb functionfs already mounted"
+		else
+			mkdir -p /dev/usb-ffs/adb
+			mount -t functionfs adb /dev/usb-ffs/adb -o uid=2000,gid=2000 || true
+		fi
+		/usr/bin/adbd &
+		sleep 0.5
+	fi
+fi
+
 mkdir -p /sys/kernel/config
-mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config
+if grep -q " /sys/kernel/config " /proc/mounts; then
+	logv "configfs already mounted"
+else
+	mount -t configfs none /sys/kernel/config
+fi
 logv "configfs ready"
 
 if [ -d "$GADGET_DIR" ]; then
@@ -289,6 +315,12 @@ while [ "$_i" -le "$CHANNELS" ]; do
 	configure_one_uvc "$_i"
 	_i=$((_i + 1))
 done
+
+# Ensure ffs.adb is linked under configs/b.1 to preserve ADB
+if [ -d "$GADGET_DIR/functions/ffs.adb" ]; then
+	logv "Linking ffs.adb under configs/b.1/f-ffs.adb"
+	ln -sf "$GADGET_DIR/functions/ffs.adb" "$GADGET_DIR/configs/b.1/f-ffs.adb"
+fi
 
 UDC="$(ls /sys/class/udc | head -n 1)"
 if [ -z "$UDC" ]; then

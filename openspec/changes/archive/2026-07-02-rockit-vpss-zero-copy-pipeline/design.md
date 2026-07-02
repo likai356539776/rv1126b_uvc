@@ -34,3 +34,9 @@ In our current `my_uvc` pipeline, the camera reader retrieves video frames in NV
   - **Mitigation**: Explicitly track memory ownership and close DMA-Buf FDs immediately after usage using RAII wrappers.
 - **[Risk]** Memory fragmentation on high-resolution streams.
   - **Mitigation**: Pre-allocate a fixed pool of DMA-Buf buffers (CMA heap) at start-up.
+
+### Decision 4: Dynamic VI/VPSS Capture Path Switching (Scheme C)
+- **Rationale**: On the RV1126B hardware platform, the VPSS RGA pipeline depends on VO display hardware synchronization interrupts (VSYNC/HSYNC) to drive the data flow. When local screen display is disabled (`vo_enable = false`), VPSS loses its hardware clock source and stalls indefinitely, regardless of channel depth or active draining. Therefore, the pipeline must dynamically adapt:
+  - If `vo_enable = true`: Initialize `VI -> VPSS` binding, and pull frames using `RK_MPI_VPSS_GetChnFrame` from `vpss_chn_algo`.
+  - If `vo_enable = false`: Completely bypass VPSS initialization, and directly pull frames using `RK_MPI_VI_GetChnFrame` from the VI channel.
+- **Restoration Guide**: If local VO display is restored (`vo_enable = true`), the initialization logic automatically re-enables VPSS and switches `GetZeroCopyFrame` back to the VPSS pull path.

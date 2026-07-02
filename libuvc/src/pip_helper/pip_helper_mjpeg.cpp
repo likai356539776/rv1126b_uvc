@@ -117,6 +117,11 @@ struct PipHelperImpl {
 	bool presenter_has_valid = false;
 	/** create 时自 pip_overlay_path 单文件解码预载成功（非 NV12 API 流）。 */
 	bool presenter_preloaded_jpeg = false;
+	int presenter_cur_w = 0;
+	int presenter_cur_h = 0;
+	int presenter_cur_x = 0;
+	int presenter_cur_y = 0;
+	bool presenter_use_dynamic_size = false;
 	/** 下三分之一网格（0 = 未启用）。 */
 	int tile_n_tiles = 0;
 	std::array<my_uvc_pip::PipTileRect, my_uvc_pip::kPipTileLayoutMax> tile_rects{};
@@ -605,11 +610,17 @@ extern "C" int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_
 					return -1;
 				}
 				used_bg_for_presenter = true;
+				p->presenter_cur_w = cur_ow;
+				p->presenter_cur_h = cur_oh;
+				p->presenter_cur_x = cur_x;
+				p->presenter_cur_y = cur_y;
+				p->presenter_use_dynamic_size = true;
 			} else {
 				if (p->overlay_nv12_single.size() != need) {
 					p->overlay_nv12_single.resize(need);
 				}
 				std::memcpy(p->overlay_nv12_single.data(), opts->presenter_nv12, need);
+				p->presenter_use_dynamic_size = false;
 			}
 			p->presenter_last_update_ms = frame_now_ms;
 			p->presenter_has_valid = true;
@@ -623,6 +634,14 @@ extern "C" int pip_helper_composite_mjpeg_ex(pip_helper_t *h, const uint8_t *bg_
 				ov_ptr = my_uvc_pip::pip_presenter_overlay_ptr(p->overlay_nv12_single, p->presenter_has_valid,
 				                                               p->presenter_last_update_ms, frame_now_ms,
 				                                               p->stale_timeout_cfg_ms);
+			}
+
+			if (ov_ptr && p->presenter_use_dynamic_size) {
+				used_bg_for_presenter = true;
+				cur_ow = p->presenter_cur_w;
+				cur_oh = p->presenter_cur_h;
+				cur_x = p->presenter_cur_x;
+				cur_y = p->presenter_cur_y;
 			}
 
 			if (!ov_ptr && p->overlay_dir_lazy) {
@@ -860,12 +879,19 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, int bg_fd, 
 						p->overlay_nv12_single.resize(cur_need);
 					}
 					pip_hw_nv12_resize_virtual(opts->presenter_nv12, psw, psh, p->overlay_nv12_single.data(), cur_ow, cur_oh);
+					used_bg_for_presenter = true;
+					p->presenter_cur_w = cur_ow;
+					p->presenter_cur_h = cur_oh;
+					p->presenter_cur_x = cur_x;
+					p->presenter_cur_y = cur_y;
+					p->presenter_use_dynamic_size = true;
 				} else {
 					const size_t need = static_cast<size_t>(p->pip_ow) * static_cast<size_t>(p->pip_oh) * 3 / 2;
 					if (p->overlay_nv12_single.size() != need) {
 						p->overlay_nv12_single.resize(need);
 					}
 					std::memcpy(p->overlay_nv12_single.data(), opts->presenter_nv12, need);
+					p->presenter_use_dynamic_size = false;
 				}
 				p->presenter_last_update_ms = frame_now_ms;
 				p->presenter_has_valid = true;
@@ -880,6 +906,14 @@ extern "C" int pip_helper_composite_nv12_background(pip_helper_t *h, int bg_fd, 
 				ov_ptr = my_uvc_pip::pip_presenter_overlay_ptr(p->overlay_nv12_single, p->presenter_has_valid,
 				                                               p->presenter_last_update_ms, frame_now_ms,
 				                                               p->stale_timeout_cfg_ms);
+			}
+
+			if (ov_ptr && p->presenter_use_dynamic_size) {
+				used_bg_for_presenter = true;
+				cur_ow = p->presenter_cur_w;
+				cur_oh = p->presenter_cur_h;
+				cur_x = p->presenter_cur_x;
+				cur_y = p->presenter_cur_y;
 			}
 
 			if (!ov_ptr && p->overlay_dir_lazy) {

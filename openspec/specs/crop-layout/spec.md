@@ -1,4 +1,9 @@
-## ADDED Requirements
+# Crop Layout Specification
+
+## Purpose
+The purpose of this specification is to define the crop layout requirements for the UVC camera application, specifically focusing on adaptive aspect ratio cropping and head-centered vertical offsets for tracked persons on the RV1126 platform.
+
+## Requirements
 
 ### Requirement: Adaptive Aspect Ratio Person Cropping
 The PersonTracker SHALL dynamically adjust the bounding box dimensions of tracked persons to match the aspect ratio of the target grid display cell based on the UVC canvas dimensions and the maximum active tile count configuration.

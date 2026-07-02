@@ -318,6 +318,17 @@ bool apply_config_kv(const std::string &section, const std::string &key, const s
 			return false;
 		}
 		cfg->uvctest.camera_height = h;
+	} else if (key == "vo_enable") {
+		if (!allow_test)
+			return reject_key("vo_enable");
+		matched = true;
+		int b = 1;
+		if (!to_int(val, &b) || (b != 0 && b != 1)) {
+			if (err)
+				*err = "invalid vo_enable at line " + std::to_string(lineno) + " (must be 0 or 1)";
+			return false;
+		}
+		cfg->uvctest.vo_enable = (b != 0);
 	} else if (key == "video_codec" || key == "codec") {
 
 		if (!allow_core)
@@ -707,6 +718,7 @@ AppConfig default_app_config() {
 	cfg.uvctest.camera_node = "/dev/video0";
 	cfg.uvctest.camera_width = 0;
 	cfg.uvctest.camera_height = 0;
+	cfg.uvctest.vo_enable = false;
 	cfg.uvctest.pip_tile_test_nv12_src_w = 0;
 
 	cfg.uvctest.pip_tile_test_nv12_src_h = 0;

@@ -225,7 +225,8 @@ int CameraRockitRgbReader::VpssInitBindPath() {
   }
 
   VPSS_CHN_ATTR_S chn_vo{};
-  fill_vpss_chn_attr(&chn_vo, vo_chn_w, vo_chn_h, 8u, 0u, cfg_.camera_mirror);
+  RK_U32 depth = vo_actual_enable_ ? 0u : 2u;
+  fill_vpss_chn_attr(&chn_vo, vo_chn_w, vo_chn_h, 8u, depth, cfg_.camera_mirror);
   ret = RK_MPI_VPSS_SetChnAttr(g, cfg_.vpss_chn_vo, &chn_vo);
   if (ret != RK_SUCCESS) {
     APP_LOGE("rockit: VPSS SetChnAttr vo chn fail 0x%x\n", ret);
@@ -496,9 +497,12 @@ void CameraRockitRgbReader::UnbindAll() {
   stVpssIn.s32DevId = cfg_.vpss_grp;
   stVpssIn.s32ChnId = kVpssViBindChn;
 
-  RK_S32 r = RK_MPI_SYS_UnBind(&stVpssVo, &stVo);
-  if (r != RK_SUCCESS) {
-    APP_LOGW("rockit: UnBind VPSS->VO 0x%x\n", r);
+  RK_S32 r = RK_SUCCESS;
+  if (vo_actual_enable_) {
+    r = RK_MPI_SYS_UnBind(&stVpssVo, &stVo);
+    if (r != RK_SUCCESS) {
+      APP_LOGW("rockit: UnBind VPSS->VO 0x%x\n", r);
+    }
   }
   r = RK_MPI_SYS_UnBind(&stVi, &stVpssIn);
   if (r != RK_SUCCESS) {
@@ -507,7 +511,7 @@ void CameraRockitRgbReader::UnbindAll() {
   sys_bound_ = false;
 }
 
-int CameraRockitRgbReader::Open(int width, int height, const std::string& node, int fps, int camera_width, int camera_height) {
+int CameraRockitRgbReader::Open(int width, int height, const std::string& node, int fps, int camera_width, int camera_height, bool vo_enable) {
   (void)node;
   RockitCameraConfig cfg;
   cfg.vi_pipe_id = 0;
@@ -520,6 +524,7 @@ int CameraRockitRgbReader::Open(int width, int height, const std::string& node, 
     cfg.width = width;
     cfg.height = height;
   }
+  cfg.vo_enable = vo_enable;
   cfg.vo_disp_width = height;  // Transpose display size for vertical panel
   cfg.vo_disp_height = width;
   cfg.vo_layer_no_compress = false;
@@ -538,6 +543,9 @@ int CameraRockitRgbReader::Open(const RockitCameraConfig& cfg) {
   ShutdownSubsystem();
 
   cfg_ = cfg;
+  APP_LOGI("rockit DEBUG Open: cfg.vpss_grp=%d, cfg.vi_pipe_id=%d, cfg.vi_chn_id=%d, cfg.width=%d, cfg.height=%d, cfg.vo_enable=%d\n",
+           cfg.vpss_grp, cfg.vi_pipe_id, cfg.vi_chn_id, cfg.width, cfg.height, cfg.vo_enable ? 1 : 0);
+  fflush(stdout);
   if (cfg_.vo_rotation_deg != 0 && cfg_.vo_rotation_deg != 90 && cfg_.vo_rotation_deg != 180 &&
       cfg_.vo_rotation_deg != 270) {
     APP_LOGE("rockit: vo_rotation_deg must be 0, 90, 180, or 270 (got %d)\n", cfg_.vo_rotation_deg);
@@ -552,7 +560,8 @@ int CameraRockitRgbReader::Open(const RockitCameraConfig& cfg) {
   height_ = cfg_.height;
   fps_ = 30;
   frame_index_ = 0;
-  bind_vo_pipeline_ = cfg_.vo_enable;
+  bind_vo_pipeline_ = true; // Always enable VPSS double channels
+  vo_actual_enable_ = cfg_.vo_enable; // Control physical VO output via external vo_enable
 
   vo_disp_w_ = cfg_.vo_disp_width > 0 ? cfg_.vo_disp_width : cfg_.width;
   vo_disp_h_ = cfg_.vo_disp_height > 0 ? cfg_.vo_disp_height : cfg_.height;
@@ -579,9 +588,11 @@ int CameraRockitRgbReader::Open(const RockitCameraConfig& cfg) {
       ShutdownSubsystem();
       return -1;
     }
-    if (VoInitBindPath() != 0) {
-      ShutdownSubsystem();
-      return -1;
+    if (vo_actual_enable_) {
+      if (VoInitBindPath() != 0) {
+        ShutdownSubsystem();
+        return -1;
+      }
     }
 
     MPP_CHN_S stVi{};
@@ -607,6 +618,7 @@ int CameraRockitRgbReader::Open(const RockitCameraConfig& cfg) {
       return -1;
     }
 
+
     MPP_CHN_S stVpssVo{};
     stVpssVo.enModId = RK_ID_VPSS;
     stVpssVo.s32DevId = cfg_.vpss_grp;
@@ -617,14 +629,22 @@ int CameraRockitRgbReader::Open(const RockitCameraConfig& cfg) {
     stVo.s32DevId = cfg_.vo_layer;
     stVo.s32ChnId = cfg_.vo_chn;
 
-    ret = RK_MPI_SYS_Bind(&stVpssVo, &stVo);
-    if (ret != RK_SUCCESS) {
-      APP_LOGE("rockit: RK_MPI_SYS_Bind VPSS->VO fail 0x%x\n", ret);
-      RK_MPI_SYS_UnBind(&stVi, &stVpssIn);
-      ShutdownSubsystem();
-      return -1;
+    // 仅在启用物理 VO 输出时绑定 VPSS->VO。
+    // 当 vo_actual_enable_=false 时，chn_vo 通过 GetChnFrame/ReleaseChnFrame 主动 drain，
+    // 不需要物理 VO 绑定，从而避免在无显示屏设备上初始化 VO 硬件。
+    if (vo_actual_enable_) {
+      ret = RK_MPI_SYS_Bind(&stVpssVo, &stVo);
+      if (ret != RK_SUCCESS) {
+        APP_LOGE("rockit: RK_MPI_SYS_Bind VPSS->VO fail 0x%x\n", ret);
+        RK_MPI_SYS_UnBind(&stVi, &stVpssIn);
+        ShutdownSubsystem();
+        return -1;
+      }
+      sys_bound_ = true;
+    } else {
+      APP_LOGI("rockit: vo_enable=false, skipping VPSS->VO bind (ch1 will be drained manually)\n");
     }
-    sys_bound_ = true;
+
 
 #ifdef RV1126B
     // VI→VPSS 绑定后再次 SetGrpMirror，避免部分驱动在 bind 前忽略组镜像。
@@ -671,7 +691,9 @@ void CameraRockitRgbReader::Close() {
 
 void CameraRockitRgbReader::ShutdownSubsystem() {
   UnbindAll();
-  VoDeinitBindPath();
+  if (vo_actual_enable_) {
+    VoDeinitBindPath();
+  }
   VpssDeinit();
 
   if (mpi_inited_) {
@@ -799,12 +821,16 @@ int CameraRockitRgbReader::GetZeroCopyFrame(ZeroCopyFrame* out_frame, int timeou
 
   RK_S32 ret = RK_MPI_VPSS_GetChnFrame(g, cfg_.vpss_chn_algo, f0, timeout_ms);
   if (ret != RK_SUCCESS) {
+    APP_LOGE("rockit DEBUG: GetChnFrame algo (chn %d) fail: 0x%x\n", cfg_.vpss_chn_algo, ret);
+    fflush(stdout);
     delete f0; delete f1; delete f2;
     return -1;
   }
 
   ret = RK_MPI_VPSS_GetChnFrame(g, 2, f1, timeout_ms);
   if (ret != RK_SUCCESS) {
+    APP_LOGE("rockit DEBUG: GetChnFrame yolo (chn 2) fail: 0x%x\n", ret);
+    fflush(stdout);
     RK_MPI_VPSS_ReleaseChnFrame(g, cfg_.vpss_chn_algo, f0);
     delete f0; delete f1; delete f2;
     return -1;
@@ -812,6 +838,8 @@ int CameraRockitRgbReader::GetZeroCopyFrame(ZeroCopyFrame* out_frame, int timeou
 
   ret = RK_MPI_VPSS_GetChnFrame(g, cfg_.vpss_chn_vo, f2, timeout_ms);
   if (ret != RK_SUCCESS) {
+    APP_LOGE("rockit DEBUG: GetChnFrame vo (chn %d) fail: 0x%x\n", cfg_.vpss_chn_vo, ret);
+    fflush(stdout);
     RK_MPI_VPSS_ReleaseChnFrame(g, cfg_.vpss_chn_algo, f0);
     RK_MPI_VPSS_ReleaseChnFrame(g, 2, f1);
     delete f0; delete f1; delete f2;
@@ -831,6 +859,7 @@ int CameraRockitRgbReader::GetZeroCopyFrame(ZeroCopyFrame* out_frame, int timeou
   out_frame->ch0_fd = RK_MPI_MB_Handle2Fd(f0->stVFrame.pMbBlk);
   out_frame->ch1_fd = zero_copy_fd_;
   out_frame->ch2_fd = RK_MPI_MB_Handle2Fd(f2->stVFrame.pMbBlk);
+  out_frame->ch1_vir = zero_copy_virt_;
 
   out_frame->ch0_w = f0->stVFrame.u32Width;
   out_frame->ch0_h = f0->stVFrame.u32Height;

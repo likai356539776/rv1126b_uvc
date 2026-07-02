@@ -71,9 +71,9 @@ PersonTracker::~PersonTracker() {
 
 void PersonTracker::GetAlignedCropBoxCentered(int src_w, int src_h, int cx, int cy, int w, int h,
                                              image_rect_t *src_box, int *crop_w, int *crop_h) const {
-	// RGA NV12 requires width aligned to 16, height/x/y aligned to 2
-	int aw = (w + 15) & ~15;
-	int ah = (h + 1) & ~1;
+	// RGA NV12 requires width and height aligned to 32 for stride alignment, x/y aligned to 2
+	int aw = (w + 31) & ~31;
+	int ah = (h + 31) & ~31;
 
 	int left = cx - aw / 2;
 	int top = cy - ah / 2;
@@ -85,16 +85,16 @@ void PersonTracker::GetAlignedCropBoxCentered(int src_w, int src_h, int cx, int 
 	if (top + ah > src_h) top = src_h - ah;
 
 	// Second clamp after potential negative adjustment
-	if (left < 0) { left = 0; aw = (src_w / 16) * 16; }
-	if (top < 0)  { top = 0;  ah = (src_h / 2) * 2; }
+	if (left < 0) { left = 0; aw = (src_w / 32) * 32; }
+	if (top < 0)  { top = 0;  ah = (src_h / 32) * 32; }
 
 	// RGA requires x and y coordinates also 2-pixel aligned for YUV formats
 	left = left & ~1;
 	top  = top  & ~1;
 
 	// After aligning left/top down, ensure we don't exceed src bounds
-	if (left + aw > src_w) aw = ((src_w - left) / 16) * 16;
-	if (top  + ah > src_h) ah = ((src_h - top)  / 2)  * 2;
+	if (left + aw > src_w) aw = ((src_w - left) / 32) * 32;
+	if (top  + ah > src_h) ah = ((src_h - top)  / 32) * 32;
 
 	src_box->left   = left;
 	src_box->top    = top;
@@ -108,7 +108,9 @@ void PersonTracker::GetAlignedCropBoxCentered(int src_w, int src_h, int cx, int 
 void PersonTracker::Update(const std::vector<object_detect_result>& persons,
                            const ZeroCopyFrame& frame, int64_t now_ms, int max_tiles) {
 	// Lazy allocation of slot buffers
-	int crop_size = 640 * 640 * 3 / 2;
+	int max_w = (frame.ch0_w > 0) ? frame.ch0_w : 1920;
+	int max_h = (frame.ch0_h > 0) ? frame.ch0_h : 1080;
+	int crop_size = max_w * max_h * 3 / 2;
 	if (frame.ch0_fd != -1) {
 		for (auto &slot : slots_) {
 			if (!slot.mb_blk) {
@@ -267,8 +269,8 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 
 			int margin_px = 2;
 			int gap_px = 2;
-			int tile_h = (frame.ch2_h - 2 * margin_px - (R - 1) * gap_px) / R;
-			int tile_w = (frame.ch2_w - 2 * margin_px - (C - 1) * gap_px) / C;
+			int tile_h = ((frame.ch0_h - 2 * margin_px - (R - 1) * gap_px) / R) & ~31;
+			int tile_w = ((frame.ch0_w - 2 * margin_px - (C - 1) * gap_px) / C) & ~31;
 			if (tile_h > 0 && tile_w > 0) {
 				target_ar = (double)tile_w / tile_h;
 			}
@@ -323,19 +325,19 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 std::shared_ptr<FrameData> PersonTracker::GenerateFrameData(const ZeroCopyFrame& frame, CameraReader* reader, int max_tiles) const {
 	auto new_frame = std::make_shared<FrameData>();
 	new_frame->frame_index = frame.frame_index;
-	new_frame->bg_w = frame.ch2_w;
-	new_frame->bg_h = frame.ch2_h;
-	new_frame->bg_fd = frame.ch2_fd;
-	new_frame->bg_virt_addr = static_cast<const uint8_t*>(frame.opaque_frame2);
+	new_frame->bg_w = frame.ch0_w;
+	new_frame->bg_h = frame.ch0_h;
+	new_frame->bg_fd = frame.ch0_fd;
+	new_frame->bg_virt_addr = (frame.ch0_fd >= 0) ? nullptr : static_cast<const uint8_t*>(frame.opaque_frame0);
 
 	new_frame->camera_frame = frame;
 	new_frame->camera_reader = reader;
 
-	new_frame->presenter_fd = -1;
-	new_frame->presenter_virt_addr = nullptr;
-	new_frame->presenter_w = 0;
-	new_frame->presenter_h = 0;
-	new_frame->presenter_updated = false;
+	new_frame->presenter_fd = frame.ch0_fd;
+	new_frame->presenter_virt_addr = (frame.ch0_fd >= 0) ? nullptr : static_cast<const uint8_t*>(frame.opaque_frame0);
+	new_frame->presenter_w = frame.ch0_w;
+	new_frame->presenter_h = frame.ch0_h;
+	new_frame->presenter_updated = (frame.ch0_fd >= 0 || frame.opaque_frame0 != nullptr);
 
 	std::vector<size_t> active_tile_indices;
 	for (size_t s = 0; s < slots_.size(); s++) {

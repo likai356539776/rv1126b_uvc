@@ -141,14 +141,17 @@ inline int pip_tile_layout_full_screen(const PipTileLayoutSpec &spec,
 
 	const int m = spec.margin_px;
 	const int g = spec.gap_px;
-	const int tile_h = (spec.canvas_h - 2 * m - (R - 1) * g) / R;
-	const int tile_w = (spec.canvas_w - 2 * m - (C - 1) * g) / C;
+	const int tile_h = ((spec.canvas_h - 2 * m - (R - 1) * g) / R) & ~31;
+	const int tile_w = ((spec.canvas_w - 2 * m - (C - 1) * g) / C) & ~31;
+
+	const int x_0 = (m + 31) & ~31;
+	const int gap_aligned = (g + 31) & ~31;
 
 	int idx = 0;
 	for (int r = 0; r < R; r++) {
-		int y = m + r * (tile_h + g);
+		int y = (m + r * (tile_h + g)) & ~1;
 		for (int c = 0; c < C; c++) {
-			int x = m + c * (tile_w + g);
+			int x = x_0 + c * (tile_w + gap_aligned);
 			if (idx < n) {
 				(*out)[static_cast<size_t>(idx)] = PipTileRect{x, y, tile_w, tile_h};
 				idx++;

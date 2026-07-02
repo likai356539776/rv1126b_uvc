@@ -23,7 +23,7 @@ public:
 	CameraV4l2RgbReader(const CameraV4l2RgbReader&) = delete;
 	CameraV4l2RgbReader& operator=(const CameraV4l2RgbReader&) = delete;
 
-	int Open(int width, int height, const std::string& node, int fps, int camera_width = 0, int camera_height = 0) override;
+	int Open(int width, int height, const std::string& node, int fps, int camera_width = 0, int camera_height = 0, bool vo_enable = true) override;
 	void Close() override;
 	int ReadNextRgbInto(image_buffer_t* out, int timeout_ms) override;
 	const uint8_t* GetLastNv12Data() const override { return nv12_tight_.data(); }

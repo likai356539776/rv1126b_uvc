@@ -23,6 +23,7 @@ struct CameraPipelineConfig {
 	int fps = 25;
 	int camera_width = 0;
 	int camera_height = 0;
+	bool vo_enable = false;  // 默认不绑定物理 VO；由上层配置显式传入
 };
 
 

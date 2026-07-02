@@ -287,7 +287,8 @@ bool CameraV4l2RgbReader::DecodeJpegToMppFrame(const uint8_t *jpeg_data, size_t 
 	return false;
 }
 
-int CameraV4l2RgbReader::Open(int width, int height, const std::string& node, int fps, int camera_width, int camera_height) {
+int CameraV4l2RgbReader::Open(int width, int height, const std::string& node, int fps, int camera_width, int camera_height, bool vo_enable) {
+	(void)vo_enable;
 	std::lock_guard<std::mutex> lock(mutex_);
 	Close();
 

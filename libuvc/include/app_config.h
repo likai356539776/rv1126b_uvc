@@ -75,6 +75,7 @@ struct UvctestIniFields {
 	std::string camera_node;
 	int camera_width;
 	int camera_height;
+	bool vo_enable;
 };
 
 /**

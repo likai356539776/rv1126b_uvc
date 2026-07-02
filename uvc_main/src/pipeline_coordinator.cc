@@ -55,6 +55,7 @@ bool PipelineCoordinator::Initialize(const AppConfig& cfg, const uvctest::CliSta
 	cam_cfg.fps = cfg_.libmy_uvc.fps;
 	cam_cfg.camera_width = cfg_.uvctest.camera_width;
 	cam_cfg.camera_height = cfg_.uvctest.camera_height;
+	cam_cfg.vo_enable = cfg_.uvctest.vo_enable;
 	if (!camera_pipeline_.Initialize(cam_cfg)) {
 		APP_LOGE("PipelineCoordinator: camera_pipeline_.Initialize failed\n");
 		my_uvc_destroy(uvc_ctx_);

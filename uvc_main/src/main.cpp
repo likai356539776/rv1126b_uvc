@@ -30,6 +30,8 @@ void print_usage(const char *argv0) {
 } // namespace
 
 int main(int argc, char **argv) {
+	setvbuf(stdout, NULL, _IONBF, 0);
+	setvbuf(stderr, NULL, _IONBF, 0);
 	std::signal(SIGINT, on_signal);
 	std::signal(SIGTERM, on_signal);
 

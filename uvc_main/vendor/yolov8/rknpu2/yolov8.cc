@@ -246,26 +246,33 @@ out:
     return ret;
 }
 
-int inference_yolov8_model_zerocopy(rknn_app_context_t* app_ctx, rknn_tensor_mem* mem, letterbox_t* letter_box, object_detect_result_list* od_results)
+int inference_yolov8_model_zerocopy(rknn_app_context_t* app_ctx, void* virt_addr, letterbox_t* letter_box, object_detect_result_list* od_results)
 {
     int ret;
+    rknn_input inputs[1];
     rknn_output outputs[app_ctx->io_num.n_output];
     const float nms_threshold = NMS_THRESH;
     const float box_conf_threshold = BOX_THRESH;
 
-    if ((!app_ctx) || (!mem) || (!od_results))
+    if ((!app_ctx) || (!virt_addr) || (!od_results))
     {
         return -1;
     }
 
     memset(od_results, 0x00, sizeof(*od_results));
-    memset(outputs, 0, sizeof(outputs));
+    memset(inputs, 0, sizeof(inputs));
 
-    // Set Input Mem
-    ret = rknn_set_io_mem(app_ctx->rknn_ctx, mem, &app_ctx->input_attrs[0]);
+    // Set Input Data
+    inputs[0].index = 0;
+    inputs[0].type = RKNN_TENSOR_UINT8;
+    inputs[0].fmt = RKNN_TENSOR_NHWC;
+    inputs[0].size = app_ctx->model_width * app_ctx->model_height * app_ctx->model_channel;
+    inputs[0].buf = virt_addr;
+
+    ret = rknn_inputs_set(app_ctx->rknn_ctx, app_ctx->io_num.n_input, inputs);
     if (ret < 0)
     {
-        APP_LOGE("rknn_set_io_mem fail! ret=%d\n", ret);
+        APP_LOGE("rknn_inputs_set fail! ret=%d\n", ret);
         return -1;
     }
 

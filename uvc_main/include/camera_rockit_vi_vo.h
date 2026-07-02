@@ -17,7 +17,7 @@ struct RockitCameraConfig {
   int vi_chn_id = 0;
   int width = 1920;
   int height = 1080;
-  bool vo_enable = true;
+  bool vo_enable = false;  // 默认不绑定物理 VO；无显示屏时 chn_vo 通过 GetChnFrame/ReleaseChnFrame 主动 drain
   int vo_layer = 0;
   int vo_dev = 0;
   int vo_chn = 0;
@@ -52,7 +52,7 @@ class CameraRockitRgbReader : public CameraReader {
   CameraRockitRgbReader(const CameraRockitRgbReader&) = delete;
   CameraRockitRgbReader& operator=(const CameraRockitRgbReader&) = delete;
 
-  int Open(int width, int height, const std::string& node, int fps, int camera_width = 0, int camera_height = 0) override;
+  int Open(int width, int height, const std::string& node, int fps, int camera_width = 0, int camera_height = 0, bool vo_enable = false) override;
   int Open(const RockitCameraConfig& cfg);
   void Close() override;
   void ShutdownSubsystem();
@@ -90,6 +90,7 @@ class CameraRockitRgbReader : public CameraReader {
   bool vpss_inited_ = false;
   bool vo_inited_ = false;
   bool bind_vo_pipeline_ = false;
+  bool vo_actual_enable_ = false;
   bool sys_bound_ = false;
 
   int vo_disp_w_ = 0;
