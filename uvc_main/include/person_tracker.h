@@ -42,6 +42,13 @@ struct FrameData {
 	std::vector<Tile> tiles;
 };
 
+struct CropStrategy {
+	int target_w;
+	int target_h;
+	double padding;
+	int min_crop_w;
+};
+
 class PersonTracker {
 public:
 	PersonTracker();

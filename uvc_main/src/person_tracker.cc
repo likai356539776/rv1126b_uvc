@@ -33,6 +33,25 @@ void nv12_crop_cpu(const uint8_t* src, int src_w, int src_h, int crop_x, int cro
 
 namespace my_app {
 
+namespace {
+// 1080p base crop strategies
+const CropStrategy kBaseCropStrategies[5] = {
+	{470, 1070, 1.12, 180}, // 1~4 tiles (large tiles, tighten padding to 1.12 and lower min size to highlight person)
+	{630, 530,  1.15, 180}, // 5~6 tiles
+	{470, 530,  1.10, 150}, // 7~8 tiles (medium tiles, tighten margin to highlight person)
+	{630, 350,  1.08, 140}, // 9 tiles
+	{470, 260,  1.05, 100}  // 10~16 tiles (small tiles, tight padding to maximize person size)
+};
+
+int GetStrategyIndex(int n_active) {
+	if (n_active <= 4) return 0;
+	if (n_active <= 6) return 1;
+	if (n_active <= 8) return 2;
+	if (n_active <= 9) return 3;
+	return 4; // 10~16
+}
+} // namespace
+
 PersonTracker::PersonTracker() {
 	slots_.resize(my_uvc_pip::kPipTileLayoutMax);
 }
@@ -75,6 +94,25 @@ void PersonTracker::GetAlignedCropBoxCentered(int src_w, int src_h, int cx, int 
 
 void PersonTracker::Update(const std::vector<object_detect_result>& persons,
                            const uint8_t* nv12_data, int vw, int vh, int64_t now_ms) {
+	// 1. Calculate the active slots count to determine strategy
+	int active_count = 0;
+	for (const auto& slot : slots_) {
+		if (slot.active) active_count++;
+	}
+	// Fallback to detected count to prime strategies on startup
+	if (active_count == 0) {
+		active_count = (int)persons.size();
+	}
+
+	int strategy_idx = GetStrategyIndex(active_count);
+	const auto& strategy = kBaseCropStrategies[strategy_idx];
+	double target_ratio = (double)strategy.target_w / strategy.target_h;
+
+	// 2. Scale min width and height thresholds based on input vw relative to 1080p (1920)
+	double scale_factor = (double)vw / 1920.0;
+	double min_w = strategy.min_crop_w * scale_factor;
+	double min_h = min_w / target_ratio;
+
 	int P = (int)persons.size();
 
 	// Track which detected person is matched to which slot
@@ -160,8 +198,27 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 			int ph = person.box.bottom - person.box.top + 1;
 			double cx_new = person.box.left + pw / 2.0;
 			double cy_new = person.box.top + ph / 2.0;
+
+			// Lock aspect ratio to match display target and apply layout strategy parameters
 			double w_new = pw;
 			double h_new = ph;
+			double current_ratio = w_new / h_new;
+
+			if (current_ratio > target_ratio) {
+				// Target is wider: scale width and determine height from ratio
+				w_new = w_new * strategy.padding;
+				h_new = w_new / target_ratio;
+			} else {
+				// Target is taller: scale height and determine width from ratio
+				h_new = h_new * strategy.padding;
+				w_new = h_new * target_ratio;
+			}
+
+			// Clear-distance protection: clamp to minimum scaled size
+			if (w_new < min_w) {
+				w_new = min_w;
+				h_new = min_h;
+			}
 
 			if (slots_[s].active) {
 				double dist = std::hypot(cx_new - slots_[s].cx, cy_new - slots_[s].cy);
