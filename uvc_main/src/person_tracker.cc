@@ -36,11 +36,11 @@ namespace my_app {
 namespace {
 // 1080p base crop strategies
 const CropStrategy kBaseCropStrategies[5] = {
-	{470, 1070, 1.12, 180}, // 1~4 tiles (large tiles, tighten padding to 1.12 and lower min size to highlight person)
-	{630, 530,  1.15, 180}, // 5~6 tiles
-	{470, 530,  1.10, 150}, // 7~8 tiles (medium tiles, tighten margin to highlight person)
-	{630, 350,  1.08, 140}, // 9 tiles
-	{470, 260,  1.05, 100}  // 10~16 tiles (small tiles, tight padding to maximize person size)
+	{470, 1070, 1.00, 180, 156.0, 94.0}, // 1~4 tiles (large tiles, 1/3 aspect deadzone tracking)
+	{630, 530,  1.15, 180, 189.0, 94.0}, // 5~6 tiles
+	{470, 530,  1.10, 150, 117.0, 70.0}, // 7~8 tiles (medium tiles)
+	{630, 350,  1.08, 140, 126.0, 75.0}, // 9 tiles
+	{470, 260,  1.05, 100, 70.0,  47.0}  // 10~16 tiles (small tiles, 15% deadzone responsive tracking)
 };
 
 int GetStrategyIndex(int n_active) {
@@ -221,11 +221,19 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 			}
 
 			if (slots_[s].active) {
-				double dist = std::hypot(cx_new - slots_[s].cx, cy_new - slots_[s].cy);
+				double dx = std::abs(cx_new - slots_[s].cx);
+				double dy = std::abs(cy_new - slots_[s].cy);
 				double dw = std::abs(w_new - slots_[s].w);
 				double dh = std::abs(h_new - slots_[s].h);
 
-				if (dist > 12.0 || dw > 16.0 || dh > 16.0) {
+				// Calculate relative size adaptive deadzone thresholds independently for X and Y axes
+				double ref_w = slots_[s].w;
+				double ref_h = slots_[s].h;
+				double dist_limit_x = std::max(ref_w * (strategy.base_dist_limit / (double)strategy.target_w), 4.0);
+				double dist_limit_y = std::max(ref_h * (strategy.base_dist_limit / (double)strategy.target_w), 4.0);
+				double scale_limit = std::max(ref_w * (strategy.base_scale_limit / (double)strategy.target_w), 6.0);
+
+				if (dx > dist_limit_x || dy > dist_limit_y || dw > scale_limit || dh > scale_limit) {
 					slots_[s].moving = true;
 				}
 
@@ -235,10 +243,18 @@ void PersonTracker::Update(const std::vector<object_detect_result>& persons,
 					slots_[s].w  = 0.2 * w_new  + 0.8 * slots_[s].w;
 					slots_[s].h  = 0.2 * h_new  + 0.8 * slots_[s].h;
 
-					double current_dist = std::hypot(cx_new - slots_[s].cx, cy_new - slots_[s].cy);
+					double current_dx = std::abs(cx_new - slots_[s].cx);
+					double current_dy = std::abs(cy_new - slots_[s].cy);
 					double current_dw = std::abs(w_new - slots_[s].w);
 					double current_dh = std::abs(h_new - slots_[s].h);
-					if (current_dist < 2.0 && current_dw < 3.0 && current_dh < 3.0) {
+
+					// High-precision adaptive convergence locking thresholds
+					double lock_dist_x = std::max(ref_w * 0.015, 2.0);
+					double lock_dist_y = std::max(ref_h * 0.015, 2.0);
+					double lock_scale = std::max(ref_w * 0.02, 3.0);
+
+					if (current_dx < lock_dist_x && current_dy < lock_dist_y && 
+					    current_dw < lock_scale && current_dh < lock_scale) {
 						slots_[s].cx = cx_new;
 						slots_[s].cy = cy_new;
 						slots_[s].w  = w_new;

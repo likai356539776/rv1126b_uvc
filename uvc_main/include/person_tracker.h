@@ -47,6 +47,8 @@ struct CropStrategy {
 	int target_h;
 	double padding;
 	int min_crop_w;
+	double base_dist_limit;
+	double base_scale_limit;
 };
 
 class PersonTracker {
