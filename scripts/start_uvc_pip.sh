@@ -6,7 +6,14 @@
 
 if [ "$1" = "v4l2" ]; then
   CAMERA_TYPE="v4l2"
-  CAMERA_NODE="/dev/video51"
+  if [ -n "$2" ]; then
+    CAMERA_NODE="$2"
+  elif [ -n "$CAMERA_NODE" ]; then
+    # Keep the environment variable CAMERA_NODE
+    :
+  else
+    CAMERA_NODE="/dev/video51"
+  fi
   RESOLUTION="1920x1080"
   PIX_FMT="MJPEG"
 elif [ "$1" = "rockit" ]; then
@@ -14,7 +21,7 @@ elif [ "$1" = "rockit" ]; then
   RESOLUTION="1920x1080"
   PIX_FMT="MJPEG"
 else
-  echo "Usage: $0 [v4l2|rockit]"
+  echo "Usage: $0 [v4l2|rockit] [camera_node]"
   exit 1
 fi
 
@@ -44,6 +51,7 @@ uvctest \
   --camera-type "$CAMERA_TYPE" \
   ${CAMERA_NODE:+--camera-node $CAMERA_NODE} \
   --size "$RESOLUTION" \
+  --camera-size 2560x1440 \
   --yolo-model "$YOLO_MODEL" \
   --yolo-labels "$YOLO_LABELS" \
   --channels 1 \
